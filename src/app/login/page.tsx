@@ -15,6 +15,7 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/home";
   const error = searchParams.get("error");
+  const detail = searchParams.get("detail");
 
   const [busy, setBusy] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
@@ -112,6 +113,28 @@ function LoginForm() {
             }}
           >
             That email isn&apos;t on the family allowlist yet. Ask Joseph to add you.
+          </div>
+        )}
+        {(error === "callback_failed" || error === "callback_no_code") && (
+          <div
+            style={{
+              background: "#fbf0f0",
+              border: "1px solid var(--burgundy)",
+              borderRadius: 4,
+              padding: "10px 14px",
+              color: "var(--burgundy)",
+              marginBottom: 18,
+              fontSize: "0.9rem",
+              textAlign: "left",
+            }}
+          >
+            <strong>Sign-in failed.</strong> Try again, or close this tab and start
+            over from <code>gordhamer-hub.vercel.app</code> in Safari.
+            {detail && (
+              <div style={{ marginTop: 6, fontSize: "0.8rem", color: "var(--muted)", fontFamily: "monospace", wordBreak: "break-all" }}>
+                Detail: {detail}
+              </div>
+            )}
           </div>
         )}
         {errMsg && (
