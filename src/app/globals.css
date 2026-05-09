@@ -104,3 +104,23 @@ label.field span { display: block; margin-bottom: 4px; }
   letter-spacing: 1px;
 }
 .section-title::before { content: "❦  "; color: var(--gold); }
+
+.empty {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+textarea {
+  font-family: inherit;
+  font-size: 1rem;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: white;
+  color: var(--ink);
+  width: 100%;
+  min-height: 70px;
+  resize: vertical;
+}
