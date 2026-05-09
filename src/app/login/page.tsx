@@ -1,20 +1,30 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+
+// Detect in-app browsers (Messenger, Instagram, FB, etc.) that Google blocks for OAuth.
+function isInAppBrowser() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  return /(FBAN|FBAV|Instagram|Messenger|FB_IAB|Line|MicroMessenger|Twitter|Snapchat)/i.test(ua);
+}
 
 function LoginForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/home";
   const error = searchParams.get("error");
 
-  const [email, setEmail] = useState("");
-  const [magicSent, setMagicSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [inApp, setInApp] = useState(false);
 
   const supabase = createClient();
+
+  useEffect(() => {
+    setInApp(isInAppBrowser());
+  }, []);
 
   const signInWithGoogle = async () => {
     setBusy(true);
@@ -29,22 +39,6 @@ function LoginForm() {
       setBusy(false);
       setErrMsg(error.message);
     }
-  };
-
-  const sendMagicLink = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim()) return;
-    setBusy(true);
-    setErrMsg(null);
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
-      },
-    });
-    setBusy(false);
-    if (error) setErrMsg(error.message);
-    else setMagicSent(true);
   };
 
   return (
@@ -137,36 +131,7 @@ function LoginForm() {
           </div>
         )}
 
-        <button
-          onClick={signInWithGoogle}
-          disabled={busy}
-          className="btn"
-          style={{
-            width: "100%",
-            justifyContent: "center",
-            marginBottom: 14,
-            opacity: busy ? 0.6 : 1,
-          }}
-        >
-          Continue with Google
-        </button>
-
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            color: "var(--muted)",
-            fontSize: "0.8rem",
-            margin: "10px 0 14px",
-          }}
-        >
-          <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
-          <span>or</span>
-          <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
-        </div>
-
-        {magicSent ? (
+        {inApp && (
           <div
             style={{
               background: "#fffbe9",
@@ -174,38 +139,33 @@ function LoginForm() {
               borderRadius: 4,
               padding: "12px 14px",
               color: "var(--navy)",
+              marginBottom: 18,
+              fontSize: "0.92rem",
               textAlign: "left",
-              fontSize: "0.95rem",
             }}
           >
-            ✉️ Check <strong>{email}</strong> for a sign-in link from Supabase.
-            Click it and you&apos;ll be signed in.
+            <strong>Open in Safari to sign in.</strong> Google blocks sign-in inside
+            Messenger / Instagram / Facebook. Tap the <strong>•••</strong> menu in the
+            top right and choose <strong>&quot;Open in Safari&quot;</strong> (or paste{" "}
+            <code style={{ background: "var(--cream-deep)", padding: "1px 5px", borderRadius: 3, fontSize: "0.85rem" }}>
+              gordhamer-hub.vercel.app
+            </code>{" "}
+            into Safari directly).
           </div>
-        ) : (
-          <form onSubmit={sendMagicLink}>
-            <input
-              type="email"
-              required
-              placeholder="your.email@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={busy}
-              style={{ marginBottom: 10 }}
-            />
-            <button
-              type="submit"
-              disabled={busy || !email.trim()}
-              className="btn btn-secondary"
-              style={{
-                width: "100%",
-                justifyContent: "center",
-                opacity: busy ? 0.6 : 1,
-              }}
-            >
-              Email me a sign-in link
-            </button>
-          </form>
         )}
+
+        <button
+          onClick={signInWithGoogle}
+          disabled={busy || inApp}
+          className="btn"
+          style={{
+            width: "100%",
+            justifyContent: "center",
+            opacity: busy || inApp ? 0.5 : 1,
+          }}
+        >
+          Continue with Google
+        </button>
 
         <p
           style={{
