@@ -802,8 +802,18 @@ function EditForm({
       onClose();
     } else if (entry.source === "calendar_item" && entry.sourceId) {
       // Calendar items only have name + date in our schema — ignore time fields.
-      await updateCalendarItem(entry.sourceId, summary.trim(), date);
+      const res = await updateCalendarItem(entry.sourceId, summary.trim(), date);
       setBusy(false);
+      if (!res.ok) {
+        alert(res.error || "Update failed");
+        return;
+      }
+      if (res.sync && !res.sync.ok && res.sync.reason !== "no_connection") {
+        alert(
+          "Saved on the Hub, but couldn't push to iCloud:\n\n" +
+            (res.sync.error || res.sync.reason || "unknown reason"),
+        );
+      }
       onClose();
     } else {
       setBusy(false);
@@ -879,10 +889,20 @@ function AddCalendarItem() {
     e.preventDefault();
     if (!name.trim() || !date) return;
     setBusy(true);
-    await createCalendarItem(name.trim(), date);
+    const res = await createCalendarItem(name.trim(), date);
+    setBusy(false);
+    if (!res.ok) {
+      alert(res.error || "Couldn't add the item");
+      return;
+    }
+    if (res.sync && !res.sync.ok && res.sync.reason !== "no_connection") {
+      alert(
+        "Added to the Hub, but couldn't push to iCloud:\n\n" +
+          (res.sync.error || res.sync.reason || "unknown reason"),
+      );
+    }
     setName("");
     setDate(todayStr());
-    setBusy(false);
   };
 
   return (

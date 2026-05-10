@@ -270,6 +270,7 @@ export async function refreshICloudEvents() {
   forward.setDate(forward.getDate() + SYNC_WINDOW_DAYS_FORWARD);
 
   let total = 0;
+  const errors: string[] = [];
   for (const cal of cals) {
     try {
       const events = await fetchEvents(
@@ -301,22 +302,39 @@ export async function refreshICloudEvents() {
           raw_ical: e.raw_ical,
         }));
         for (let i = 0; i < rows.length; i += 200) {
-          await supabase.from("subscribed_events").insert(rows.slice(i, i + 200));
+          const { error: insErr } = await supabase
+            .from("subscribed_events")
+            .insert(rows.slice(i, i + 200));
+          if (insErr) {
+            errors.push(`${cal.display_name}: insert failed — ${insErr.message}`);
+            console.error("subscribed_events insert error:", insErr);
+          }
         }
       }
       total += events.length;
     } catch (e: unknown) {
+      const msg = (e as Error)?.message ?? String(e);
+      errors.push(`${cal.display_name}: ${msg}`);
       console.error(`Sync error for ${cal.display_name}:`, e);
     }
   }
 
   await supabase
     .from("icloud_connections")
-    .update({ last_synced_at: new Date().toISOString(), last_error: null })
+    .update({
+      last_synced_at: new Date().toISOString(),
+      last_error: errors.length > 0 ? errors.join(" | ").slice(0, 500) : null,
+    })
     .eq("id", conn.id);
 
   revalidatePath("/calendar");
   revalidatePath("/home");
+  if (errors.length > 0) {
+    return {
+      ok: false as const,
+      error: `Synced ${total} events, but had ${errors.length} error${errors.length === 1 ? "" : "s"}: ${errors.join(" | ").slice(0, 400)}`,
+    };
+  }
   return { ok: true as const, count: total };
 }
 
@@ -331,10 +349,10 @@ export async function pushEventToICloud(input: {
   startIso: string;
   endIso?: string | null;
   allDay?: boolean;
-}) {
+}): Promise<{ ok: boolean; reason?: string; error?: string }> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { ok: false };
+  if (!user) return { ok: false, reason: "not_signed_in" };
 
   const { data: conn } = await supabase
     .from("icloud_connections")
@@ -349,7 +367,13 @@ export async function pushEventToICloud(input: {
     .eq("connection_id", conn.id)
     .eq("is_default_for_writes", true)
     .maybeSingle();
-  if (!writeCal) return { ok: false, reason: "no_default_calendar" };
+  if (!writeCal) {
+    await supabase
+      .from("icloud_connections")
+      .update({ last_error: "No default-for-writes calendar selected. Click ★ Make default on one calendar." })
+      .eq("id", conn.id);
+    return { ok: false, reason: "no_default_calendar" };
+  }
 
   try {
     const result = await icloudUpsert(
@@ -389,9 +413,20 @@ export async function pushEventToICloud(input: {
       },
       { onConflict: "connection_id,uid" },
     );
+    // Clear last_error on success
+    await supabase
+      .from("icloud_connections")
+      .update({ last_error: null })
+      .eq("id", conn.id);
     return { ok: true };
   } catch (e: unknown) {
-    return { ok: false, error: (e as Error)?.message };
+    const msg = (e as Error)?.message ?? "iCloud push failed";
+    await supabase
+      .from("icloud_connections")
+      .update({ last_error: `Push failed: ${msg.slice(0, 300)}` })
+      .eq("id", conn.id);
+    console.error("pushEventToICloud failed:", msg);
+    return { ok: false, reason: "icloud_error", error: msg };
   }
 }
 
