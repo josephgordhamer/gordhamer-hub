@@ -7,6 +7,7 @@ import {
   fetchEvents,
   listCalendars,
   upsertEvent as icloudUpsert,
+  updateEventAt as icloudUpdate,
   deleteEvent as icloudDelete,
   type ICloudCredentials,
 } from "@/lib/icloud";
@@ -14,16 +15,25 @@ import {
 const SYNC_WINDOW_DAYS_BACK = 30;
 const SYNC_WINDOW_DAYS_FORWARD = 365;
 
+const COLOR_PALETTE = [
+  "#4a7080", // slate
+  "#b8924a", // gold
+  "#5d6d4a", // sage
+  "#732d3b", // burgundy
+  "#6b4e7a", // plum
+  "#1f2c4a", // navy
+  "#a07b1f", // amber
+  "#4a4a4a", // graphite
+];
+
 export async function connectICloud(input: {
   appleId: string;
   appPassword: string;
-  defaultCalendarName?: string;
 }) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Not signed in" };
 
-  // Try to log in & list calendars to validate the credentials.
   const encrypted = encryptSecret(input.appPassword);
   let calendars;
   try {
@@ -43,52 +53,41 @@ export async function connectICloud(input: {
     return { ok: false, error: "Connected, but no calendars found." };
   }
 
-  // Pick the calendar by name if provided, else the first.
-  const target =
-    (input.defaultCalendarName &&
-      calendars.find(
-        (c) => c.displayName.toLowerCase() === input.defaultCalendarName!.toLowerCase(),
-      )) ||
-    calendars[0];
+  // Upsert the connection (no default calendar — user picks)
+  const { data: conn } = await supabase
+    .from("icloud_connections")
+    .upsert(
+      {
+        profile_id: user.id,
+        apple_id: input.appleId,
+        app_password_encrypted: encrypted,
+      },
+      { onConflict: "profile_id" },
+    )
+    .select("id")
+    .single();
 
-  // Upsert the connection
-  await supabase.from("icloud_connections").upsert(
-    {
-      profile_id: user.id,
-      apple_id: input.appleId,
-      app_password_encrypted: encrypted,
-      default_calendar_url: target.url,
-      default_calendar_name: target.displayName,
-    },
-    { onConflict: "profile_id" },
-  );
+  if (conn) {
+    // Pre-populate the icloud_calendars rows so the UI can show all options
+    for (let i = 0; i < calendars.length; i++) {
+      const cal = calendars[i];
+      await supabase.from("icloud_calendars").upsert(
+        {
+          connection_id: conn.id,
+          caldav_url: cal.url,
+          display_name: cal.displayName,
+          color: COLOR_PALETTE[i % COLOR_PALETTE.length],
+          enabled: false,
+          is_default_for_writes: false,
+          position: i,
+        },
+        { onConflict: "connection_id,caldav_url" },
+      );
+    }
+  }
 
   revalidatePath("/calendar");
   return { ok: true, calendars };
-}
-
-// Returns the list of calendars available on iCloud for the signed-in user's connection.
-export async function listMyCalendars(): Promise<
-  { ok: true; calendars: { url: string; displayName: string }[] } | { ok: false; error: string }
-> {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: "Not signed in" };
-  const { data: conn } = await supabase
-    .from("icloud_connections")
-    .select("apple_id, app_password_encrypted")
-    .eq("profile_id", user.id)
-    .maybeSingle();
-  if (!conn) return { ok: false, error: "iCloud isn't connected." };
-  try {
-    const calendars = await listCalendars({
-      appleId: conn.apple_id,
-      appPasswordEncrypted: conn.app_password_encrypted,
-    });
-    return { ok: true, calendars: calendars.map((c) => ({ url: c.url, displayName: c.displayName })) };
-  } catch (e: unknown) {
-    return { ok: false, error: (e as Error)?.message ?? "fetch failed" };
-  }
 }
 
 export async function disconnectICloud() {
@@ -99,29 +98,101 @@ export async function disconnectICloud() {
   revalidatePath("/calendar");
 }
 
-export async function setDefaultCalendar(url: string, name: string) {
+export async function listMyCalendars() {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false as const, error: "Not signed in" };
+  const { data: conn } = await supabase
+    .from("icloud_connections")
+    .select("apple_id, app_password_encrypted")
+    .eq("profile_id", user.id)
+    .maybeSingle();
+  if (!conn) return { ok: false as const, error: "iCloud isn't connected." };
+  try {
+    const calendars = await listCalendars({
+      appleId: conn.apple_id,
+      appPasswordEncrypted: conn.app_password_encrypted,
+    });
+    return { ok: true as const, calendars };
+  } catch (e: unknown) {
+    return { ok: false as const, error: (e as Error)?.message ?? "fetch failed" };
+  }
+}
+
+// Toggle a single calendar enabled/disabled.
+export async function toggleCalendar(id: string, enabled: boolean) {
+  const supabase = createClient();
+  await supabase.from("icloud_calendars").update({ enabled }).eq("id", id);
+  // If we just disabled, drop its cached events
+  if (!enabled) {
+    await supabase.from("subscribed_events").delete().eq("icloud_calendar_id", id);
+  }
+  revalidatePath("/calendar");
+}
+
+export async function setDefaultWriteCalendar(id: string) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
+  const { data: cal } = await supabase
+    .from("icloud_calendars")
+    .select("connection_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!cal) return;
+  // Clear other defaults on the same connection, then set this one
   await supabase
-    .from("icloud_connections")
-    .update({ default_calendar_url: url, default_calendar_name: name })
-    .eq("profile_id", user.id);
+    .from("icloud_calendars")
+    .update({ is_default_for_writes: false })
+    .eq("connection_id", cal.connection_id);
+  await supabase
+    .from("icloud_calendars")
+    .update({ is_default_for_writes: true })
+    .eq("id", id);
+  // Mirror to the connection row for legacy reads
+  const { data: chosen } = await supabase
+    .from("icloud_calendars")
+    .select("caldav_url, display_name")
+    .eq("id", id)
+    .maybeSingle();
+  if (chosen) {
+    await supabase
+      .from("icloud_connections")
+      .update({
+        default_calendar_url: chosen.caldav_url,
+        default_calendar_name: chosen.display_name,
+      })
+      .eq("id", cal.connection_id);
+  }
+  revalidatePath("/calendar");
+}
+
+export async function setCalendarColor(id: string, color: string) {
+  const supabase = createClient();
+  await supabase.from("icloud_calendars").update({ color }).eq("id", id);
   revalidatePath("/calendar");
 }
 
 export async function refreshICloudEvents() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: "Not signed in" };
+  if (!user) return { ok: false as const, error: "Not signed in" };
 
   const { data: conn } = await supabase
     .from("icloud_connections")
     .select("*")
     .eq("profile_id", user.id)
     .maybeSingle();
-  if (!conn) return { ok: false, error: "iCloud isn't connected." };
-  if (!conn.default_calendar_url) return { ok: false, error: "No default calendar set." };
+  if (!conn) return { ok: false as const, error: "iCloud isn't connected." };
+
+  const { data: cals } = await supabase
+    .from("icloud_calendars")
+    .select("*")
+    .eq("connection_id", conn.id)
+    .eq("enabled", true);
+  if (!cals || cals.length === 0) {
+    return { ok: false as const, error: "No calendars selected. Pick one or more in the panel." };
+  }
 
   const creds: ICloudCredentials = {
     appleId: conn.apple_id,
@@ -134,44 +205,44 @@ export async function refreshICloudEvents() {
   const forward = new Date(now);
   forward.setDate(forward.getDate() + SYNC_WINDOW_DAYS_FORWARD);
 
-  let events;
-  try {
-    events = await fetchEvents(
-      creds,
-      conn.default_calendar_url,
-      back.toISOString(),
-      forward.toISOString(),
-    );
-  } catch (e: unknown) {
-    await supabase
-      .from("icloud_connections")
-      .update({ last_error: (e as Error)?.message ?? "fetch failed" })
-      .eq("id", conn.id);
-    return { ok: false, error: "iCloud fetch failed: " + ((e as Error)?.message ?? "") };
-  }
-
-  // Replace cached events for this connection in the window.
-  await supabase.from("subscribed_events").delete().eq("connection_id", conn.id);
-
-  if (events.length > 0) {
-    const rows = events.map((e) => ({
-      connection_id: conn.id,
-      uid: e.uid,
-      caldav_url: e.caldav_url,
-      etag: e.etag,
-      summary: e.summary,
-      description: e.description,
-      location: e.location,
-      start_at: e.start_at,
-      end_at: e.end_at,
-      all_day: e.all_day,
-      is_recurring: e.is_recurring,
-      rrule: e.rrule,
-      raw_ical: e.raw_ical,
-    }));
-    // chunk to 200 to avoid request limits
-    for (let i = 0; i < rows.length; i += 200) {
-      await supabase.from("subscribed_events").insert(rows.slice(i, i + 200));
+  let total = 0;
+  for (const cal of cals) {
+    try {
+      const events = await fetchEvents(
+        creds,
+        cal.caldav_url,
+        back.toISOString(),
+        forward.toISOString(),
+      );
+      // Replace events for THIS calendar only
+      await supabase
+        .from("subscribed_events")
+        .delete()
+        .eq("icloud_calendar_id", cal.id);
+      if (events.length > 0) {
+        const rows = events.map((e) => ({
+          connection_id: conn.id,
+          icloud_calendar_id: cal.id,
+          uid: e.uid,
+          caldav_url: e.caldav_url,
+          etag: e.etag,
+          summary: e.summary,
+          description: e.description,
+          location: e.location,
+          start_at: e.start_at,
+          end_at: e.end_at,
+          all_day: e.all_day,
+          is_recurring: e.is_recurring,
+          rrule: e.rrule,
+          raw_ical: e.raw_ical,
+        }));
+        for (let i = 0; i < rows.length; i += 200) {
+          await supabase.from("subscribed_events").insert(rows.slice(i, i + 200));
+        }
+      }
+      total += events.length;
+    } catch (e: unknown) {
+      console.error(`Sync error for ${cal.display_name}:`, e);
     }
   }
 
@@ -182,10 +253,10 @@ export async function refreshICloudEvents() {
 
   revalidatePath("/calendar");
   revalidatePath("/home");
-  return { ok: true, count: events.length };
+  return { ok: true as const, count: total };
 }
 
-// Push a hub-side event to iCloud. Used by the calendar item / event creation flows.
+// Push a hub-side event to iCloud (uses the default-for-writes calendar).
 export async function pushEventToICloud(input: {
   source: "calendar_item" | "event";
   source_id: string;
@@ -206,7 +277,15 @@ export async function pushEventToICloud(input: {
     .select("*")
     .eq("profile_id", user.id)
     .maybeSingle();
-  if (!conn || !conn.default_calendar_url) return { ok: false, reason: "no_connection" };
+  if (!conn) return { ok: false, reason: "no_connection" };
+
+  const { data: writeCal } = await supabase
+    .from("icloud_calendars")
+    .select("*")
+    .eq("connection_id", conn.id)
+    .eq("is_default_for_writes", true)
+    .maybeSingle();
+  if (!writeCal) return { ok: false, reason: "no_default_calendar" };
 
   try {
     const result = await icloudUpsert(
@@ -214,7 +293,7 @@ export async function pushEventToICloud(input: {
         appleId: conn.apple_id,
         appPasswordEncrypted: conn.app_password_encrypted,
       },
-      conn.default_calendar_url,
+      writeCal.caldav_url,
       {
         uid: input.uid,
         summary: input.summary,
@@ -225,10 +304,10 @@ export async function pushEventToICloud(input: {
         allDay: input.allDay,
       },
     );
-    // Cache it locally too, linked to the source row.
     await supabase.from("subscribed_events").upsert(
       {
         connection_id: conn.id,
+        icloud_calendar_id: writeCal.id,
         uid: input.uid,
         caldav_url: result.url,
         etag: result.etag,
@@ -246,6 +325,118 @@ export async function pushEventToICloud(input: {
       },
       { onConflict: "connection_id,uid" },
     );
+    return { ok: true };
+  } catch (e: unknown) {
+    return { ok: false, error: (e as Error)?.message };
+  }
+}
+
+// Edit an existing iCloud event (CalDAV PUT to its url).
+export async function updateICloudEvent(input: {
+  cached_event_id: string;
+  summary: string;
+  description?: string;
+  location?: string;
+  startIso: string;
+  endIso?: string | null;
+  allDay?: boolean;
+}) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Not signed in" };
+
+  const { data: ev } = await supabase
+    .from("subscribed_events")
+    .select("*")
+    .eq("id", input.cached_event_id)
+    .maybeSingle();
+  if (!ev) return { ok: false, error: "Event not found" };
+  if (!ev.caldav_url) return { ok: false, error: "Event has no CalDAV URL" };
+
+  const { data: conn } = await supabase
+    .from("icloud_connections")
+    .select("*")
+    .eq("id", ev.connection_id)
+    .maybeSingle();
+  if (!conn) return { ok: false, error: "Connection missing" };
+
+  // Strip recurring suffix if present (uid::isoStart) — we edit the master event
+  const masterUid = ev.uid.split("::")[0];
+
+  try {
+    const result = await icloudUpdate(
+      {
+        appleId: conn.apple_id,
+        appPasswordEncrypted: conn.app_password_encrypted,
+      },
+      ev.caldav_url,
+      ev.etag,
+      {
+        uid: masterUid,
+        summary: input.summary,
+        description: input.description,
+        location: input.location,
+        start: new Date(input.startIso),
+        end: input.endIso ? new Date(input.endIso) : null,
+        allDay: input.allDay,
+      },
+    );
+    await supabase
+      .from("subscribed_events")
+      .update({
+        summary: input.summary,
+        description: input.description ?? null,
+        location: input.location ?? null,
+        start_at: input.startIso,
+        end_at: input.endIso ?? null,
+        all_day: input.allDay ?? false,
+        etag: result.etag,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", ev.id);
+    revalidatePath("/calendar");
+    return { ok: true };
+  } catch (e: unknown) {
+    return { ok: false, error: (e as Error)?.message };
+  }
+}
+
+export async function deleteICloudEvent(cached_event_id: string) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Not signed in" };
+
+  const { data: ev } = await supabase
+    .from("subscribed_events")
+    .select("*")
+    .eq("id", cached_event_id)
+    .maybeSingle();
+  if (!ev || !ev.caldav_url) return { ok: false, error: "Event missing or has no URL" };
+
+  const { data: conn } = await supabase
+    .from("icloud_connections")
+    .select("*")
+    .eq("id", ev.connection_id)
+    .maybeSingle();
+  if (!conn) return { ok: false, error: "Connection missing" };
+
+  try {
+    await icloudDelete(
+      {
+        appleId: conn.apple_id,
+        appPasswordEncrypted: conn.app_password_encrypted,
+      },
+      ev.caldav_url,
+      ev.etag,
+    );
+    // Delete all rows for this UID (handles recurring expansions)
+    const baseUid = ev.uid.split("::")[0];
+    await supabase
+      .from("subscribed_events")
+      .delete()
+      .eq("connection_id", ev.connection_id)
+      .or(`uid.eq.${baseUid},uid.like.${baseUid}::%`);
+    revalidatePath("/calendar");
     return { ok: true };
   } catch (e: unknown) {
     return { ok: false, error: (e as Error)?.message };

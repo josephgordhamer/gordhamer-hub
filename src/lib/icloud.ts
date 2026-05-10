@@ -226,3 +226,39 @@ export async function deleteEvent(
     calendarObject: { url: caldavUrl, etag: etag ?? "" } as DAVCalendarObject,
   });
 }
+
+// Update an existing event on iCloud (PUT to the same caldav_url).
+export async function updateEventAt(
+  creds: ICloudCredentials,
+  caldavUrl: string,
+  etag: string | null,
+  input: NewEventInput,
+): Promise<{ etag: string | null }> {
+  const client = await getClient(creds);
+  const dtstamp = icalDateTime(new Date());
+  const ds = input.allDay ? icalDate(input.start) : icalDateTime(input.start);
+  const de = input.end
+    ? input.allDay ? icalDate(input.end) : icalDateTime(input.end)
+    : null;
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Gordhamer Hub//EN",
+    "BEGIN:VEVENT",
+    `UID:${input.uid}`,
+    `DTSTAMP:${dtstamp}`,
+    input.allDay ? `DTSTART;VALUE=DATE:${ds}` : `DTSTART:${ds}`,
+    de ? (input.allDay ? `DTEND;VALUE=DATE:${de}` : `DTEND:${de}`) : "",
+    `SUMMARY:${escapeIcal(input.summary)}`,
+    input.description ? `DESCRIPTION:${escapeIcal(input.description)}` : "",
+    input.location ? `LOCATION:${escapeIcal(input.location)}` : "",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].filter(Boolean);
+  const ical = lines.join("\r\n");
+  const res = await client.updateCalendarObject({
+    calendarObject: { url: caldavUrl, etag: etag ?? "", data: ical } as DAVCalendarObject,
+  });
+  const newEtag = res.headers?.get?.("etag") ?? null;
+  return { etag: newEtag };
+}
