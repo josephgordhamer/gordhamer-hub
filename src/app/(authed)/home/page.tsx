@@ -199,6 +199,12 @@ async function Dashboard() {
             Trivia, would-you-rather, and family memory prompts.
           </p>
         </Card>
+
+        <Card href="/celebrations" title="Family Keepsakes">
+          <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--muted)" }}>
+            Pages we built to remember the moments that mattered.
+          </p>
+        </Card>
       </div>
     </>
   );
