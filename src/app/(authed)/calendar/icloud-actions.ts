@@ -67,6 +67,30 @@ export async function connectICloud(input: {
   return { ok: true, calendars };
 }
 
+// Returns the list of calendars available on iCloud for the signed-in user's connection.
+export async function listMyCalendars(): Promise<
+  { ok: true; calendars: { url: string; displayName: string }[] } | { ok: false; error: string }
+> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Not signed in" };
+  const { data: conn } = await supabase
+    .from("icloud_connections")
+    .select("apple_id, app_password_encrypted")
+    .eq("profile_id", user.id)
+    .maybeSingle();
+  if (!conn) return { ok: false, error: "iCloud isn't connected." };
+  try {
+    const calendars = await listCalendars({
+      appleId: conn.apple_id,
+      appPasswordEncrypted: conn.app_password_encrypted,
+    });
+    return { ok: true, calendars: calendars.map((c) => ({ url: c.url, displayName: c.displayName })) };
+  } catch (e: unknown) {
+    return { ok: false, error: (e as Error)?.message ?? "fetch failed" };
+  }
+}
+
 export async function disconnectICloud() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();

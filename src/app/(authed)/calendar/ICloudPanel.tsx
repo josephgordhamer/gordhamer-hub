@@ -5,6 +5,8 @@ import {
   connectICloud,
   disconnectICloud,
   refreshICloudEvents,
+  listMyCalendars,
+  setDefaultCalendar,
 } from "./icloud-actions";
 
 interface Connection {
@@ -23,6 +25,36 @@ export function ICloudPanel({ connection }: { connection: Connection | null }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
+  const [availableCalendars, setAvailableCalendars] = useState<
+    { url: string; displayName: string }[] | null
+  >(null);
+  const [pickerBusy, setPickerBusy] = useState(false);
+
+  const loadCalendars = async () => {
+    setPickerBusy(true);
+    setMsg(null);
+    const res = await listMyCalendars();
+    setPickerBusy(false);
+    if (res.ok) {
+      setAvailableCalendars(res.calendars);
+    } else {
+      setMsg({ ok: false, text: res.error });
+    }
+  };
+
+  const switchCalendar = async (url: string, name: string) => {
+    setPickerBusy(true);
+    setMsg(null);
+    await setDefaultCalendar(url, name);
+    // Auto-refresh after switching
+    const res = await refreshICloudEvents();
+    setPickerBusy(false);
+    if (res.ok) {
+      setMsg({ ok: true, text: `Switched to "${name}" and synced ${res.count} events.` });
+    } else {
+      setMsg({ ok: false, text: res.error || "Switched, but refresh failed." });
+    }
+  };
 
   const onConnect = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,6 +155,76 @@ export function ICloudPanel({ connection }: { connection: Connection | null }) {
           )}
         </div>
       </div>
+
+      {connection && (
+        <div style={{ marginTop: 10 }}>
+          <button
+            className="btn btn-secondary"
+            onClick={loadCalendars}
+            disabled={pickerBusy}
+            style={{ fontSize: "0.85rem", padding: "4px 10px" }}
+          >
+            {pickerBusy ? "Working…" : availableCalendars ? "Refresh list" : "Pick a different calendar"}
+          </button>
+          {availableCalendars && (
+            <div
+              style={{
+                marginTop: 8,
+                background: "white",
+                border: "1px solid var(--line)",
+                borderRadius: 4,
+                padding: 8,
+              }}
+            >
+              <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginBottom: 6 }}>
+                Calendars on your iCloud account ({availableCalendars.length}):
+              </div>
+              {availableCalendars.map((c) => (
+                <div
+                  key={c.url}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "4px 6px",
+                    borderBottom: "1px dotted var(--line)",
+                  }}
+                >
+                  <span style={{ fontSize: "0.92rem" }}>
+                    {c.displayName}
+                    {connection.default_calendar_name === c.displayName && (
+                      <span
+                        style={{
+                          marginLeft: 8,
+                          background: "var(--gold)",
+                          color: "var(--navy)",
+                          padding: "1px 8px",
+                          borderRadius: 8,
+                          fontSize: "0.7rem",
+                          letterSpacing: 1,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Active
+                      </span>
+                    )}
+                  </span>
+                  {connection.default_calendar_name !== c.displayName && (
+                    <button
+                      className="btn btn-secondary"
+                      style={{ fontSize: "0.78rem", padding: "3px 8px" }}
+                      onClick={() => switchCalendar(c.url, c.displayName)}
+                      disabled={pickerBusy}
+                    >
+                      Use this
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {msg && (
         <div
