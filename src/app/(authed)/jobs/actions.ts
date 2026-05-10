@@ -104,6 +104,31 @@ export async function createJob(input: {
   revalidatePath("/home");
 }
 
+export async function updateJob(
+  id: string,
+  input: {
+    name: string;
+    frequency: Frequency;
+    custom_days: number | null;
+    start_date: string;
+    rotation: string[];
+  },
+) {
+  const supabase = createClient();
+  await supabase
+    .from("jobs")
+    .update({
+      name: input.name,
+      frequency: input.frequency,
+      custom_days: input.custom_days,
+      start_date: input.start_date,
+      rotation: input.rotation,
+    })
+    .eq("id", id);
+  revalidatePath("/jobs");
+  revalidatePath("/home");
+}
+
 export async function deleteJob(id: string) {
   const supabase = createClient();
   await supabase

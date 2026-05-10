@@ -29,6 +29,7 @@ import {
   setOverride,
   clearOverride,
   createJob,
+  updateJob,
   deleteJob,
 } from "./actions";
 
@@ -1123,8 +1124,24 @@ function QuickAddModal({
 
 function ManageJobs({ jobs, family }: { jobs: Job[]; family: FamilyMember[] }) {
   const [showForm, setShowForm] = useState(false);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
+
+  const startEdit = (job: Job) => {
+    setEditingJob(job);
+    setShowForm(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   return (
     <>
+      {editingJob && (
+        <JobForm
+          editing={editingJob}
+          family={family}
+          onClose={() => setEditingJob(null)}
+        />
+      )}
+
       <div className="card" style={{ padding: 0 }}>
         <h3
           style={{
@@ -1184,38 +1201,57 @@ function ManageJobs({ jobs, family }: { jobs: Job[]; family: FamilyMember[] }) {
                   )}
                 </div>
               </div>
-              <button
-                className="btn"
-                style={{ background: "var(--burgundy)", fontSize: "0.85rem", padding: "4px 10px" }}
-                onClick={async () => {
-                  if (!confirm("Remove this job?")) return;
-                  await deleteJob(job.id);
-                }}
-              >
-                Delete
-              </button>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: "0.85rem", padding: "4px 10px" }}
+                  onClick={() => startEdit(job)}
+                >
+                  ✎ Edit
+                </button>
+                <button
+                  className="btn"
+                  style={{ background: "var(--burgundy)", fontSize: "0.85rem", padding: "4px 10px" }}
+                  onClick={async () => {
+                    if (!confirm("Remove this job?")) return;
+                    await deleteJob(job.id);
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))
         )}
       </div>
 
       {showForm ? (
-        <NewJobForm family={family} onClose={() => setShowForm(false)} />
+        <JobForm family={family} onClose={() => setShowForm(false)} />
       ) : (
-        <button className="btn" onClick={() => setShowForm(true)} style={{ marginTop: 8 }}>
-          + Add a Recurring Job
-        </button>
+        !editingJob && (
+          <button className="btn" onClick={() => setShowForm(true)} style={{ marginTop: 8 }}>
+            + Add a Recurring Job
+          </button>
+        )
       )}
     </>
   );
 }
 
-function NewJobForm({ family, onClose }: { family: FamilyMember[]; onClose: () => void }) {
-  const [name, setName] = useState("");
-  const [frequency, setFrequency] = useState<Frequency>("weekly");
-  const [customDays, setCustomDays] = useState("");
-  const [startDate, setStartDate] = useState(todayStr());
-  const [rotation, setRotation] = useState<string[]>([]);
+function JobForm({
+  family,
+  editing,
+  onClose,
+}: {
+  family: FamilyMember[];
+  editing?: Job;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(editing?.name || "");
+  const [frequency, setFrequency] = useState<Frequency>(editing?.frequency || "weekly");
+  const [customDays, setCustomDays] = useState(editing?.custom_days?.toString() || "");
+  const [startDate, setStartDate] = useState(editing?.start_date || todayStr());
+  const [rotation, setRotation] = useState<string[]>(editing?.rotation ? [...editing.rotation] : []);
   const [busy, setBusy] = useState(false);
   const opts = ["Everyone", ...family.map((f) => f.name)];
 
@@ -1225,13 +1261,18 @@ function NewJobForm({ family, onClose }: { family: FamilyMember[]; onClose: () =
     if (rotation.length === 0) return alert("Pick at least one family member for the rotation.");
     if (frequency === "custom" && !customDays) return alert("Days between is required for custom.");
     setBusy(true);
-    await createJob({
+    const data = {
       name: name.trim(),
       frequency,
       custom_days: frequency === "custom" ? Number(customDays) : null,
       start_date: startDate,
       rotation,
-    });
+    };
+    if (editing) {
+      await updateJob(editing.id, data);
+    } else {
+      await createJob(data);
+    }
     setBusy(false);
     onClose();
   };
@@ -1246,7 +1287,7 @@ function NewJobForm({ family, onClose }: { family: FamilyMember[]; onClose: () =
           fontWeight: "normal",
         }}
       >
-        Add a New Job
+        {editing ? `Edit: ${editing.name}` : "Add a New Job"}
       </h3>
       <form onSubmit={save}>
         <label className="field">
@@ -1347,7 +1388,7 @@ function NewJobForm({ family, onClose }: { family: FamilyMember[]; onClose: () =
         </label>
         <div style={{ display: "flex", gap: 6 }}>
           <button className="btn" type="submit" disabled={busy}>
-            {busy ? "Adding..." : "Add Job"}
+            {busy ? "Saving..." : editing ? "Save Changes" : "Add Job"}
           </button>
           <button type="button" className="btn btn-secondary" onClick={onClose}>
             Cancel
