@@ -9,12 +9,21 @@ export type Frequency =
   | "yearly"
   | "custom";
 
+export type RelationshipStatus =
+  | "single"
+  | "engaged"
+  | "married"
+  | "widowed"
+  | "divorced";
+
 export interface FamilyMember {
   id: string;
   name: string;
   preferred_name: string | null;
   relationship: Relationship;
   parent_id: string | null;
+  partner_id: string | null;
+  relationship_status: RelationshipStatus | null;
   birthday: string | null;
   phone: string | null;
   email: string | null;
