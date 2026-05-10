@@ -36,12 +36,37 @@ export interface CalendarSummary {
 export async function listCalendars(creds: ICloudCredentials): Promise<CalendarSummary[]> {
   const client = await getClient(creds);
   const cals = await client.fetchCalendars();
+  // iCloud is inconsistent about how it populates `components`: sometimes it's
+  // an array of strings, sometimes a comma-separated string, sometimes missing
+  // (especially for shared / family calendars). Be permissive — only EXCLUDE a
+  // calendar if `components` clearly says it's a non-event calendar.
+  function supportsEvents(c: DAVCalendar): boolean {
+    const comps = c.components as unknown;
+    if (Array.isArray(comps)) {
+      if (comps.length === 0) return true; // empty → can't tell, include
+      return comps.some((x) => typeof x === "string" && x.toUpperCase().includes("VEVENT"));
+    }
+    if (typeof comps === "string") {
+      return comps.toUpperCase().includes("VEVENT");
+    }
+    return true; // unknown shape → include
+  }
+  // Skip iCloud's housekeeping collections by URL.
+  function looksLikeEventCalendar(c: DAVCalendar): boolean {
+    const url = (c.url || "").toLowerCase();
+    if (url.includes("/inbox/") || url.includes("/outbox/") || url.includes("/notifications/")) {
+      return false;
+    }
+    return true;
+  }
   return cals
-    .filter((c: DAVCalendar) => Array.isArray(c.components) && c.components.includes("VEVENT"))
+    .filter((c: DAVCalendar) => looksLikeEventCalendar(c) && supportsEvents(c))
     .map((c: DAVCalendar) => ({
       url: c.url,
       displayName:
-        typeof c.displayName === "string" ? c.displayName : c.url.split("/").filter(Boolean).pop() || "Calendar",
+        typeof c.displayName === "string" && c.displayName.trim()
+          ? c.displayName
+          : c.url.split("/").filter(Boolean).pop() || "Calendar",
       ctag: typeof c.ctag === "string" ? c.ctag : null,
     }));
 }

@@ -5,6 +5,7 @@ import {
   connectICloud,
   disconnectICloud,
   refreshICloudEvents,
+  refreshCalendarList,
   toggleCalendar,
   setDefaultWriteCalendar,
   setCalendarColor,
@@ -61,6 +62,24 @@ export function ICloudPanel({
       const res = await refreshICloudEvents();
       if (res.ok) setMsg({ ok: true, text: `Synced ${res.count} events.` });
       else setMsg({ ok: false, text: res.error });
+    });
+  };
+
+  const onRefetchCalendars = () => {
+    startTransition(async () => {
+      setMsg(null);
+      const res = await refreshCalendarList();
+      if (res.ok) {
+        setMsg({
+          ok: true,
+          text:
+            res.added > 0
+              ? `Found ${res.total} calendars on iCloud — added ${res.added} new one${res.added === 1 ? "" : "s"} below.`
+              : `Found ${res.total} calendars. No new ones to add.`,
+        });
+      } else {
+        setMsg({ ok: false, text: res.error });
+      }
     });
   };
 
@@ -126,14 +145,33 @@ export function ICloudPanel({
             padding: "8px 10px",
           }}
         >
-          <div style={{ fontSize: "0.78rem", color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
-            Calendars on iCloud
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 6,
+            }}
+          >
+            <div style={{ fontSize: "0.78rem", color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase" }}>
+              Calendars on iCloud
+            </div>
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: "0.75rem", padding: "2px 8px" }}
+              onClick={onRefetchCalendars}
+              disabled={pending}
+              title="Re-check iCloud for any new calendars you've added"
+            >
+              {pending ? "Checking…" : "↻ Re-fetch list"}
+            </button>
           </div>
           {calendars.map((cal) => (
             <CalendarRow key={cal.id} cal={cal} />
           ))}
           <div style={{ marginTop: 8, fontSize: "0.78rem", color: "var(--muted)", fontStyle: "italic" }}>
             Tick a calendar to sync events from it. The ★ marks the calendar new events created here will be pushed to.
+            Missing one? Click <strong>↻ Re-fetch list</strong>.
           </div>
         </div>
       )}

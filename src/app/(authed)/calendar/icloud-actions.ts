@@ -98,6 +98,70 @@ export async function disconnectICloud() {
   revalidatePath("/calendar");
 }
 
+// Re-fetch the calendar list from iCloud and upsert any new ones into our
+// icloud_calendars table, preserving enabled / color / default-for-writes
+// flags on calendars that are already there.
+export async function refreshCalendarList() {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false as const, error: "Not signed in" };
+
+  const { data: conn } = await supabase
+    .from("icloud_connections")
+    .select("id, apple_id, app_password_encrypted")
+    .eq("profile_id", user.id)
+    .maybeSingle();
+  if (!conn) return { ok: false as const, error: "iCloud isn't connected." };
+
+  let calendars;
+  try {
+    calendars = await listCalendars({
+      appleId: conn.apple_id,
+      appPasswordEncrypted: conn.app_password_encrypted,
+    });
+  } catch (e: unknown) {
+    return { ok: false as const, error: (e as Error)?.message ?? "fetch failed" };
+  }
+
+  // Existing rows so we can avoid clobbering the user's choices.
+  const { data: existing } = await supabase
+    .from("icloud_calendars")
+    .select("id, caldav_url, position")
+    .eq("connection_id", conn.id);
+  const existingByUrl = new Map(
+    (existing ?? []).map((r) => [r.caldav_url, r] as const),
+  );
+  const maxPos = (existing ?? []).reduce((m, r) => Math.max(m, r.position ?? 0), -1);
+
+  let added = 0;
+  let nextPos = maxPos + 1;
+  for (const cal of calendars) {
+    if (existingByUrl.has(cal.url)) {
+      // Keep the existing row's flags, just refresh the display name.
+      await supabase
+        .from("icloud_calendars")
+        .update({ display_name: cal.displayName })
+        .eq("connection_id", conn.id)
+        .eq("caldav_url", cal.url);
+      continue;
+    }
+    await supabase.from("icloud_calendars").insert({
+      connection_id: conn.id,
+      caldav_url: cal.url,
+      display_name: cal.displayName,
+      color: COLOR_PALETTE[nextPos % COLOR_PALETTE.length],
+      enabled: false,
+      is_default_for_writes: false,
+      position: nextPos,
+    });
+    nextPos += 1;
+    added += 1;
+  }
+
+  revalidatePath("/calendar");
+  return { ok: true as const, total: calendars.length, added };
+}
+
 export async function listMyCalendars() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
