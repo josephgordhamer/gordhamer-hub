@@ -275,6 +275,25 @@ CREATE INDEX IF NOT EXISTS idx_calendar_items_start_at ON public.calendar_items(
 CREATE INDEX IF NOT EXISTS idx_calendar_items_icloud_calendar ON public.calendar_items(icloud_calendar_id);
 
 -- =====================================================================
+-- 8b. PHOTO ALBUMS  (iCloud Shared Albums pulled into the Hub gallery)
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.photo_albums (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  share_url     text NOT NULL,
+  share_token   text NOT NULL,
+  name          text NOT NULL,
+  description   text,
+  position      integer NOT NULL DEFAULT 0,
+  cover_guid    text,
+  added_by      uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  deleted_at    timestamptz,
+  UNIQUE(share_token)
+);
+CREATE INDEX IF NOT EXISTS idx_photo_albums_position ON public.photo_albums(position);
+
+-- =====================================================================
 -- 9. SCRIPTURE STUDY
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS public.scripture_plan (
@@ -366,6 +385,7 @@ ALTER TABLE public.calendar_items   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.scripture_plan   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.discussions      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.resources        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.photo_albums     ENABLE ROW LEVEL SECURITY;
 
 -- Helper: check if the current user has a profile (i.e. is allowlisted)
 CREATE OR REPLACE FUNCTION public.current_user_is_family()
@@ -411,7 +431,8 @@ BEGIN
       'family_members', 'personal_pages', 'page_requests',
       'jobs', 'job_completions', 'job_overrides',
       'events', 'event_tasks', 'calendar_items',
-      'scripture_plan', 'discussions', 'resources'
+      'scripture_plan', 'discussions', 'resources',
+      'photo_albums'
     ])
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS "%1$I_select" ON public.%1$I;', t);
