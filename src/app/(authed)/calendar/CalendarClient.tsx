@@ -5,14 +5,27 @@ import type { FamilyEvent, FamilyMember, CalendarItem } from "@/lib/types";
 import { formatDate, getDisplayName, todayStr } from "@/lib/helpers";
 import { createCalendarItem, deleteCalendarItem } from "./actions";
 
+interface SubscribedEvent {
+  id: string;
+  uid: string;
+  summary: string;
+  start_at: string;
+  end_at: string | null;
+  all_day: boolean;
+  is_recurring: boolean;
+  location: string | null;
+}
+
 export function CalendarClient({
   events,
   family,
   calendarItems,
+  subscribedEvents = [],
 }: {
   events: FamilyEvent[];
   family: FamilyMember[];
   calendarItems: CalendarItem[];
+  subscribedEvents?: SubscribedEvent[];
 }) {
   const today = new Date();
   const [month, setMonth] = useState(today.getMonth());
@@ -30,31 +43,30 @@ export function CalendarClient({
   const daysInMonth = lastDay.getDate();
   const prevMonthLast = new Date(year, month, 0).getDate();
 
-  const eventsOnDate: Record<number, string[]> = {};
+  type DayEntry = { label: string; kind: "event" | "item" | "birthday" | "icloud" };
+  const eventsOnDate: Record<number, DayEntry[]> = {};
+  const push = (day: number, entry: DayEntry) => {
+    if (!eventsOnDate[day]) eventsOnDate[day] = [];
+    eventsOnDate[day].push(entry);
+  };
   events.forEach((e) => {
     if (!e.date) return;
     const d = new Date(e.date + "T12:00:00");
-    if (d.getMonth() === month && d.getFullYear() === year) {
-      const day = d.getDate();
-      if (!eventsOnDate[day]) eventsOnDate[day] = [];
-      eventsOnDate[day].push(e.name);
-    }
+    if (d.getMonth() === month && d.getFullYear() === year) push(d.getDate(), { label: e.name, kind: "event" });
   });
   calendarItems.forEach((item) => {
     const d = new Date(item.date + "T12:00:00");
-    if (d.getMonth() === month && d.getFullYear() === year) {
-      const day = d.getDate();
-      if (!eventsOnDate[day]) eventsOnDate[day] = [];
-      eventsOnDate[day].push(item.name);
-    }
+    if (d.getMonth() === month && d.getFullYear() === year) push(d.getDate(), { label: item.name, kind: "item" });
   });
   family.forEach((f) => {
     if (!f.birthday) return;
     const d = new Date(f.birthday + "T12:00:00");
-    if (d.getMonth() === month) {
-      const day = d.getDate();
-      if (!eventsOnDate[day]) eventsOnDate[day] = [];
-      eventsOnDate[day].push(`🎂 ${getDisplayName(f)}`);
+    if (d.getMonth() === month) push(d.getDate(), { label: `🎂 ${getDisplayName(f)}`, kind: "birthday" });
+  });
+  subscribedEvents.forEach((se) => {
+    const d = new Date(se.start_at);
+    if (d.getMonth() === month && d.getFullYear() === year) {
+      push(d.getDate(), { label: se.summary, kind: "icloud" });
     }
   });
 
@@ -119,25 +131,36 @@ export function CalendarClient({
         }}
       >
         <div style={{ fontWeight: "bold", color: "var(--navy)" }}>{d}</div>
-        {eventsList.map((label, i) => (
-          <div
-            key={i}
-            title={label}
-            style={{
-              background: "var(--navy)",
-              color: "var(--cream)",
-              borderRadius: 3,
-              padding: "1px 4px",
-              marginTop: 2,
-              fontSize: "0.7rem",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {label}
-          </div>
-        ))}
+        {eventsList.map((entry, i) => {
+          const bg =
+            entry.kind === "icloud"
+              ? "#4a7080"
+              : entry.kind === "birthday"
+              ? "var(--gold)"
+              : entry.kind === "item"
+              ? "var(--burgundy)"
+              : "var(--navy)";
+          const fg = entry.kind === "birthday" ? "var(--navy)" : "var(--cream)";
+          return (
+            <div
+              key={i}
+              title={entry.label}
+              style={{
+                background: bg,
+                color: fg,
+                borderRadius: 3,
+                padding: "1px 4px",
+                marginTop: 2,
+                fontSize: "0.7rem",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {entry.label}
+            </div>
+          );
+        })}
       </div>,
     );
   }
