@@ -285,7 +285,16 @@ export async function refreshICloudEvents() {
         .delete()
         .eq("icloud_calendar_id", cal.id);
       if (events.length > 0) {
-        const rows = events.map((e) => ({
+        // Dedupe by UID — iCloud shared/family calendars sometimes return the
+        // same event twice; the unique constraint on (connection_id, uid) would
+        // otherwise fail the whole batch.
+        const seen = new Set<string>();
+        const deduped = events.filter((e) => {
+          if (seen.has(e.uid)) return false;
+          seen.add(e.uid);
+          return true;
+        });
+        const rows = deduped.map((e) => ({
           connection_id: conn.id,
           icloud_calendar_id: cal.id,
           uid: e.uid,
@@ -302,16 +311,21 @@ export async function refreshICloudEvents() {
           raw_ical: e.raw_ical,
         }));
         for (let i = 0; i < rows.length; i += 200) {
+          // Use upsert (last-write-wins) instead of insert so any UID that
+          // somehow collides across calendars on the same connection just
+          // overwrites instead of failing the whole chunk.
           const { error: insErr } = await supabase
             .from("subscribed_events")
-            .insert(rows.slice(i, i + 200));
+            .upsert(rows.slice(i, i + 200), { onConflict: "connection_id,uid" });
           if (insErr) {
             errors.push(`${cal.display_name}: insert failed — ${insErr.message}`);
             console.error("subscribed_events insert error:", insErr);
           }
         }
+        total += deduped.length;
+      } else {
+        total += events.length;
       }
-      total += events.length;
     } catch (e: unknown) {
       const msg = (e as Error)?.message ?? String(e);
       errors.push(`${cal.display_name}: ${msg}`);

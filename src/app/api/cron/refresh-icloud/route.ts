@@ -68,7 +68,14 @@ export async function GET(request: Request) {
           .delete()
           .eq("icloud_calendar_id", cal.id);
         if (events.length > 0) {
-          const rows = events.map((e) => ({
+          // Dedupe by UID — shared/family calendars can return duplicates.
+          const seen = new Set<string>();
+          const deduped = events.filter((e) => {
+            if (seen.has(e.uid)) return false;
+            seen.add(e.uid);
+            return true;
+          });
+          const rows = deduped.map((e) => ({
             connection_id: conn.id,
             icloud_calendar_id: cal.id,
             uid: e.uid,
@@ -85,10 +92,12 @@ export async function GET(request: Request) {
             raw_ical: e.raw_ical,
           }));
           for (let i = 0; i < rows.length; i += 200) {
-            await supabase.from("subscribed_events").insert(rows.slice(i, i + 200));
+            await supabase
+              .from("subscribed_events")
+              .upsert(rows.slice(i, i + 200), { onConflict: "connection_id,uid" });
           }
+          total += deduped.length;
         }
-        total += events.length;
       } catch (e: unknown) {
         const msg = (e as Error)?.message ?? String(e);
         errors.push(`${cal.display_name}: ${msg}`);
