@@ -80,16 +80,23 @@ export async function saveContact(input: ContactInput) {
       .eq("id", personId);
   } else if (input.partner) {
     let partnerId = input.partner_id;
+    // Look up the blood spouse's position so the in-law sorts adjacent to them.
+    const { data: bloodSpouse } = await supabase
+      .from("family_members")
+      .select("position")
+      .eq("id", personId)
+      .maybeSingle();
     const partnerData = {
       name: input.partner.name,
       preferred_name: input.partner.preferred_name || null,
       email: input.partner.email || null,
       phone: input.partner.phone || null,
       birthday: input.partner.birthday || null,
-      relationship: input.relationship, // partner sits at same generation
-      parent_id: null,                   // not a blood-line child
+      relationship: input.relationship,           // partner sits at same generation
+      parent_id: personData.parent_id,            // inherit tier from blood spouse
       partner_id: personId,
       relationship_status: input.relationship_status ?? "married",
+      position: bloodSpouse?.position ?? 0,        // inherit position so they sort together
     };
 
     if (partnerId) {

@@ -110,8 +110,13 @@ function buildCouplesForParents(
   const seen = new Set<string>();
   const couples: Couple[] = [];
 
-  // Sort candidates by position to keep stable order
-  candidates.sort((a, b) => a.position - b.position);
+  // Sort: position ASC, then created_at ASC (older record wins, which is the blood relative
+  // in cases where someone was added first and a partner was added later), then by name.
+  candidates.sort((a, b) => {
+    if (a.position !== b.position) return a.position - b.position;
+    if (a.created_at !== b.created_at) return a.created_at < b.created_at ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
 
   candidates.forEach((person) => {
     if (seen.has(person.id)) return;
@@ -325,14 +330,26 @@ function ContactForm({
   const [partnerBirthday, setPartnerBirthday] = useState(existingPartner?.birthday || "");
 
   // Possible parents (for parent_id selector)
+  //   - "child" → can pick from existing parents
+  //   - "grandchild" → can pick from existing children (or their spouses, who sit at child tier)
+  //   - "parent" → no parent (root-tier)
   const possibleParents =
-    relationship === "grandchild" || relationship === "child"
-      ? family.filter((f) => f.relationship !== "grandchild")
+    relationship === "child"
+      ? family.filter((f) => f.relationship === "parent")
+      : relationship === "grandchild"
+      ? family.filter((f) => f.relationship === "child")
       : [];
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+    if ((relationship === "child" || relationship === "grandchild") && !parentId) {
+      const ok = confirm(
+        `${name} is a ${relationship} but no parent is selected. ` +
+          `They'll show up at the very top instead of indented under their parent. Save anyway?`,
+      );
+      if (!ok) return;
+    }
     setBusy(true);
     await saveContact({
       id: editing?.id,
