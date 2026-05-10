@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import type { FamilyEvent, FamilyMember, CalendarItem } from "@/lib/types";
 import { formatDate, getDisplayName, todayStr } from "@/lib/helpers";
 import type { ICloudCalendarRow, SubscribedEvent } from "./page";
-import { createCalendarItem, deleteCalendarItem } from "./actions";
+import { createCalendarItem, deleteCalendarItem, updateCalendarItem } from "./actions";
 import { updateICloudEvent, deleteICloudEvent } from "./icloud-actions";
 
 type ViewMode = "month" | "week" | "day";
@@ -800,9 +800,12 @@ function EditForm({
         return;
       }
       onClose();
+    } else if (entry.source === "calendar_item" && entry.sourceId) {
+      // Calendar items only have name + date in our schema — ignore time fields.
+      await updateCalendarItem(entry.sourceId, summary.trim(), date);
+      setBusy(false);
+      onClose();
     } else {
-      // calendar_item — limited edits (we only have name + date in our schema)
-      // For now just close; could be expanded later.
       setBusy(false);
       onClose();
     }

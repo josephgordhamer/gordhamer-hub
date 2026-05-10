@@ -353,6 +353,16 @@ export async function updateICloudEvent(input: {
   if (!ev) return { ok: false, error: "Event not found" };
   if (!ev.caldav_url) return { ok: false, error: "Event has no CalDAV URL" };
 
+  // We can't safely overwrite the recurring master without preserving RRULE / EXDATE.
+  // Defer that to a future commit; for now refuse with a clear message.
+  if (ev.is_recurring) {
+    return {
+      ok: false,
+      error:
+        "This is a recurring event. Editing the whole series isn't supported yet — please edit it on your iPhone, then click ↻ Refresh here.",
+    };
+  }
+
   const { data: conn } = await supabase
     .from("icloud_connections")
     .select("*")
@@ -360,7 +370,6 @@ export async function updateICloudEvent(input: {
     .maybeSingle();
   if (!conn) return { ok: false, error: "Connection missing" };
 
-  // Strip recurring suffix if present (uid::isoStart) — we edit the master event
   const masterUid = ev.uid.split("::")[0];
 
   try {

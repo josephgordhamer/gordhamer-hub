@@ -210,7 +210,11 @@ export async function upsertEvent(
     filename,
     iCalString: ical,
   });
-  // tsdav returns Response; etag may be in headers
+  if (!res.ok) {
+    let body = "";
+    try { body = await res.text(); } catch { /* ignore */ }
+    throw new Error(`iCloud rejected create (${res.status} ${res.statusText}): ${body.slice(0, 200)}`);
+  }
   const etag = res.headers?.get?.("etag") ?? null;
   return { url, etag };
 }
@@ -222,9 +226,14 @@ export async function deleteEvent(
   etag?: string | null,
 ): Promise<void> {
   const client = await getClient(creds);
-  await client.deleteCalendarObject({
+  const res = await client.deleteCalendarObject({
     calendarObject: { url: caldavUrl, etag: etag ?? "" } as DAVCalendarObject,
   });
+  if (!res.ok && res.status !== 404) {
+    let body = "";
+    try { body = await res.text(); } catch { /* ignore */ }
+    throw new Error(`iCloud rejected delete (${res.status} ${res.statusText}): ${body.slice(0, 200)}`);
+  }
 }
 
 // Update an existing event on iCloud (PUT to the same caldav_url).
@@ -256,9 +265,20 @@ export async function updateEventAt(
     "END:VCALENDAR",
   ].filter(Boolean);
   const ical = lines.join("\r\n");
-  const res = await client.updateCalendarObject({
+  let res = await client.updateCalendarObject({
     calendarObject: { url: caldavUrl, etag: etag ?? "", data: ical } as DAVCalendarObject,
   });
+  // If the etag is stale, retry with If-Match: * (unconditional)
+  if (res.status === 412 || res.status === 409) {
+    res = await client.updateCalendarObject({
+      calendarObject: { url: caldavUrl, etag: "*", data: ical } as DAVCalendarObject,
+    });
+  }
+  if (!res.ok) {
+    let body = "";
+    try { body = await res.text(); } catch { /* ignore */ }
+    throw new Error(`iCloud rejected update (${res.status} ${res.statusText}): ${body.slice(0, 200)}`);
+  }
   const newEtag = res.headers?.get?.("etag") ?? null;
   return { etag: newEtag };
 }
