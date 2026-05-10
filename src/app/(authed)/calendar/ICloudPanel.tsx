@@ -105,7 +105,7 @@ export function ICloudPanel({
             <div style={{ fontSize: "0.88rem", color: "var(--muted)" }}>
               Connected as <strong>{connection.apple_id}</strong>
               {" · "}
-              {enabledCount} of {calendars.length} calendar{calendars.length === 1 ? "" : "s"} syncing
+              {enabledCount} of {calendars.length} calendar{calendars.length === 1 ? "" : "s"} showing
               {connection.last_synced_at && (
                 <> · last synced {new Date(connection.last_synced_at).toLocaleString()}</>
               )}
@@ -124,7 +124,7 @@ export function ICloudPanel({
         <div style={{ display: "flex", gap: 6 }}>
           {connection && (
             <>
-              <button className="btn" onClick={onRefresh} disabled={pending || enabledCount === 0}>
+              <button className="btn" onClick={onRefresh} disabled={pending}>
                 {pending ? "Refreshing…" : "↻ Refresh"}
               </button>
               <button className="btn btn-secondary" onClick={() => setOpen((o) => !o)}>
@@ -170,8 +170,9 @@ export function ICloudPanel({
             <CalendarRow key={cal.id} cal={cal} />
           ))}
           <div style={{ marginTop: 8, fontSize: "0.78rem", color: "var(--muted)", fontStyle: "italic" }}>
-            Tick a calendar to sync events from it. The ★ marks the calendar new events created here will be pushed to.
-            Missing one? Click <strong>↻ Re-fetch list</strong>.
+            All calendars are synced — tick a calendar to <strong>show</strong> its events on the
+            calendar (and untick to hide them). The ★ marks the calendar new events created here
+            will be pushed to. Missing one? Click <strong>↻ Re-fetch list</strong>.
           </div>
         </div>
       )}

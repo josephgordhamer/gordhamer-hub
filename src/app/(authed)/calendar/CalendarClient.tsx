@@ -116,8 +116,13 @@ export function CalendarClient({
         });
       });
     });
-    // iCloud events
+    // iCloud events — only include events whose calendar is currently enabled
+    const enabledCalIds = new Set(
+      icloudCalendars.filter((c) => c.enabled).map((c) => c.id),
+    );
     subscribedEvents.forEach((se) => {
+      // Hide events from disabled calendars (cache is preserved either way)
+      if (se.icloud_calendar_id && !enabledCalIds.has(se.icloud_calendar_id)) return;
       const startMs = new Date(se.start_at).getTime();
       const endMs = se.end_at ? new Date(se.end_at).getTime() : null;
       out.push({

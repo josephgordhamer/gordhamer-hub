@@ -183,14 +183,12 @@ export async function listMyCalendars() {
   }
 }
 
-// Toggle a single calendar enabled/disabled.
+// Toggle a single calendar enabled/disabled. The "enabled" flag is now a
+// display filter — events from ALL calendars are still cached, so toggling is
+// instant and doesn't require a re-sync to see events come back.
 export async function toggleCalendar(id: string, enabled: boolean) {
   const supabase = createClient();
   await supabase.from("icloud_calendars").update({ enabled }).eq("id", id);
-  // If we just disabled, drop its cached events
-  if (!enabled) {
-    await supabase.from("subscribed_events").delete().eq("icloud_calendar_id", id);
-  }
   revalidatePath("/calendar");
 }
 
@@ -249,13 +247,15 @@ export async function refreshICloudEvents() {
     .maybeSingle();
   if (!conn) return { ok: false as const, error: "iCloud isn't connected." };
 
+  // Pull events from ALL calendars on this connection — the user's enabled/disabled
+  // flag is a UI filter, not a fetch filter. This way, ticking a calendar shows
+  // its events instantly (no re-sync required).
   const { data: cals } = await supabase
     .from("icloud_calendars")
     .select("*")
-    .eq("connection_id", conn.id)
-    .eq("enabled", true);
+    .eq("connection_id", conn.id);
   if (!cals || cals.length === 0) {
-    return { ok: false as const, error: "No calendars selected. Pick one or more in the panel." };
+    return { ok: false as const, error: "No calendars on this connection. Click Re-fetch list to discover them." };
   }
 
   const creds: ICloudCredentials = {
