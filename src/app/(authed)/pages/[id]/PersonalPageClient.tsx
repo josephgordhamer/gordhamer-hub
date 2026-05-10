@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import type {
   FamilyMember,
@@ -178,6 +178,95 @@ function SectionView({ s, accent }: { s: PersonalPageSection; accent: string }) 
       {s.type === "custom" && s.html && (
         <div dangerouslySetInnerHTML={{ __html: s.html }} />
       )}
+      {s.type === "countdown" && s.target_date && (
+        <Countdown targetDate={s.target_date} label={s.label} accent={accent} />
+      )}
+    </div>
+  );
+}
+
+function Countdown({
+  targetDate,
+  label,
+  accent,
+}: {
+  targetDate: string;
+  label?: string;
+  accent: string;
+}) {
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    setNow(new Date());
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const target = new Date(targetDate + "T12:00:00");
+  const diffMs = now ? target.getTime() - now.getTime() : 0;
+  const past = diffMs < 0;
+  const totalSec = Math.max(0, Math.floor(Math.abs(diffMs) / 1000));
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+
+  const targetLabel = target.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  return (
+    <div
+      style={{
+        background: `${accent}1a`,
+        border: `1px solid ${accent}`,
+        borderRadius: 8,
+        padding: "20px 24px",
+        textAlign: "center",
+        marginTop: 8,
+      }}
+    >
+      {label && (
+        <div style={{ fontStyle: "italic", marginBottom: 8, opacity: 0.85 }}>
+          {label}
+        </div>
+      )}
+      {now ? (
+        <>
+          <div style={{ display: "flex", justifyContent: "center", gap: 18, flexWrap: "wrap" }}>
+            <CountBlock value={days} label={days === 1 ? "day" : "days"} accent={accent} />
+            <CountBlock value={hours} label="hr" accent={accent} />
+            <CountBlock value={minutes} label="min" accent={accent} />
+          </div>
+          <div style={{ marginTop: 10, fontSize: "0.92rem", fontStyle: "italic", opacity: 0.8 }}>
+            {past ? "Since" : "Until"} {targetLabel}
+          </div>
+        </>
+      ) : (
+        <div style={{ fontStyle: "italic", opacity: 0.6 }}>Loading countdown…</div>
+      )}
+    </div>
+  );
+}
+
+function CountBlock({ value, label, accent }: { value: number; label: string; accent: string }) {
+  return (
+    <div style={{ minWidth: 70 }}>
+      <div
+        style={{
+          fontFamily: "'Garamond', serif",
+          fontSize: "2.4rem",
+          fontWeight: "normal",
+          color: accent,
+          lineHeight: 1,
+        }}
+      >
+        {value}
+      </div>
+      <div style={{ fontSize: "0.78rem", letterSpacing: 1, textTransform: "uppercase", opacity: 0.7, marginTop: 2 }}>
+        {label}
+      </div>
     </div>
   );
 }
@@ -219,7 +308,11 @@ function PageEditor({
         ? { type: "text", title: "", content: "" }
         : type === "list"
         ? { type: "list", title: "", items: [""] }
-        : { type: "links", title: "", items: [{ title: "", url: "", description: "" }] };
+        : type === "countdown"
+        ? { type: "countdown", title: "", target_date: "", label: "" }
+        : type === "links"
+        ? { type: "links", title: "", items: [{ title: "", url: "", description: "" }] }
+        : { type: "custom", title: "", html: "" };
     setSections([...sections, newSection]);
   };
 
@@ -291,6 +384,7 @@ function PageEditor({
           <button className="btn btn-secondary" onClick={() => addSection("text")} style={{ fontSize: "0.85rem", padding: "4px 10px" }}>+ Text Block</button>
           <button className="btn btn-secondary" onClick={() => addSection("list")} style={{ fontSize: "0.85rem", padding: "4px 10px" }}>+ Bullet List</button>
           <button className="btn btn-secondary" onClick={() => addSection("links")} style={{ fontSize: "0.85rem", padding: "4px 10px" }}>+ Links Collection</button>
+          <button className="btn btn-secondary" onClick={() => addSection("countdown")} style={{ fontSize: "0.85rem", padding: "4px 10px" }}>+ Countdown</button>
         </div>
       </div>
 
@@ -363,6 +457,25 @@ function SectionEditor({
           <span>Content</span>
           <textarea value={s.content || ""} onChange={(e) => onUpdate({ content: e.target.value })} />
         </label>
+      )}
+      {s.type === "countdown" && (
+        <>
+          <label className="field">
+            <span>Target date</span>
+            <input
+              type="date"
+              value={s.target_date || ""}
+              onChange={(e) => onUpdate({ target_date: e.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>Label (e.g., &quot;Until our wedding&quot;)</span>
+            <input
+              value={s.label || ""}
+              onChange={(e) => onUpdate({ label: e.target.value })}
+            />
+          </label>
+        </>
       )}
       {s.type === "list" && (
         <>

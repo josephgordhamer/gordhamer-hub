@@ -13,6 +13,7 @@ export function ContactsClient({ family }: { family: FamilyMember[] }) {
   const parents = family.filter((f) => f.relationship === "parent");
   const children = family.filter((f) => f.relationship === "child");
   const grandchildren = family.filter((f) => f.relationship === "grandchild");
+  const spouses = family.filter((f) => f.relationship === "spouse");
 
   const onEdit = (p: FamilyMember) => {
     setEditing(p);
@@ -46,16 +47,25 @@ export function ContactsClient({ family }: { family: FamilyMember[] }) {
         {parents.map((p) => (
           <ContactCard key={p.id} person={p} onEdit={onEdit} onDelete={onDelete} />
         ))}
-        {children.map((c) => (
-          <div key={c.id}>
-            <ContactCard person={c} onEdit={onEdit} onDelete={onDelete} />
-            {grandchildren
-              .filter((gc) => gc.parent_id === c.id)
-              .map((gc) => (
+        {children.map((c) => {
+          const childSpouses = spouses.filter((s) => s.parent_id === c.id);
+          // Grandchildren whose parent_id points to either the child or any of their spouses
+          const couplesIds = [c.id, ...childSpouses.map((s) => s.id)];
+          const childGrandkids = grandchildren.filter((gc) =>
+            couplesIds.includes(gc.parent_id || ""),
+          );
+          return (
+            <div key={c.id}>
+              <ContactCard person={c} onEdit={onEdit} onDelete={onDelete} />
+              {childSpouses.map((s) => (
+                <ContactCard key={s.id} person={s} onEdit={onEdit} onDelete={onDelete} />
+              ))}
+              {childGrandkids.map((gc) => (
                 <ContactCard key={gc.id} person={gc} onEdit={onEdit} onDelete={onDelete} />
               ))}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </>
   );
@@ -71,12 +81,13 @@ function ContactCard({
   onDelete: (id: string) => void;
 }) {
   const cls = person.relationship;
-  const colors = {
+  const colors: Record<string, { border: string; marginLeft: number }> = {
     parent: { border: "var(--gold)", marginLeft: 0 },
     child: { border: "var(--navy)", marginLeft: 24 },
+    spouse: { border: "#6b4e7a", marginLeft: 24 },
     grandchild: { border: "var(--burgundy)", marginLeft: 48 },
   };
-  const style = colors[cls];
+  const style = colors[cls] || colors.child;
   return (
     <div
       style={{
@@ -164,7 +175,13 @@ function ContactForm({
   const [state, setState] = useState(editing?.state || "");
   const [busy, setBusy] = useState(false);
 
-  const possibleParents = family.filter((f) => f.relationship !== "grandchild");
+  // Spouses pick a child to be married to. Grandchildren pick a child or spouse as their parent.
+  const possibleParents =
+    relationship === "spouse"
+      ? family.filter((f) => f.relationship === "child")
+      : relationship === "grandchild"
+      ? family.filter((f) => f.relationship === "child" || f.relationship === "spouse")
+      : family.filter((f) => f.relationship === "parent" || f.relationship === "child");
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,11 +230,18 @@ function ContactForm({
             <select value={relationship} onChange={(e) => setRelationship(e.target.value as Relationship)}>
               <option value="parent">Parent</option>
               <option value="child">Child</option>
+              <option value="spouse">Spouse (married into family)</option>
               <option value="grandchild">Grandchild</option>
             </select>
           </label>
           <label className="field">
-            <span>Parent (if child or grandchild)</span>
+            <span>
+              {relationship === "spouse"
+                ? "Married to"
+                : relationship === "grandchild"
+                ? "Parent"
+                : "Parent (if child or grandchild)"}
+            </span>
             <select value={parentId} onChange={(e) => setParentId(e.target.value)}>
               <option value="">— None —</option>
               {possibleParents.map((p) => (

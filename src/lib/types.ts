@@ -1,4 +1,4 @@
-export type Relationship = "parent" | "child" | "grandchild";
+export type Relationship = "parent" | "child" | "grandchild" | "spouse";
 export type Frequency =
   | "once"
   | "daily"
@@ -28,11 +28,14 @@ export interface FamilyMember {
 }
 
 export interface PersonalPageSection {
-  type: "text" | "list" | "links" | "custom";
+  type: "text" | "list" | "links" | "custom" | "countdown";
   title?: string;
   content?: string;
   items?: string[] | { title: string; url: string; description?: string }[];
   html?: string;
+  // for countdown
+  target_date?: string;
+  label?: string;
 }
 
 export interface PersonalPage {
