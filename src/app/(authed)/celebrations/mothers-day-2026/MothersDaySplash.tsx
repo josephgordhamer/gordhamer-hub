@@ -1,35 +1,31 @@
 import Link from "next/link";
+import fs from "node:fs";
+import path from "node:path";
 
-interface PhotoSpec {
-  src: string;
-  alt: string;
-  span?: { col?: number; row?: number };
+// Read /public/mothers-day at build/render time and use whatever's there.
+// If a file is named "hero.jpg" / "hero.jpeg" / "hero.png", it becomes the
+// hero photo; otherwise the first file alphabetically does.
+function loadPhotos(): { hero: string; collage: string[] } {
+  const dir = path.join(process.cwd(), "public", "mothers-day");
+  let files: string[] = [];
+  try {
+    files = fs
+      .readdirSync(dir)
+      .filter((f) => /\.(jpg|jpeg|png|webp)$/i.test(f))
+      .sort();
+  } catch {
+    files = [];
+  }
+  if (files.length === 0) return { hero: "", collage: [] };
+  const heroIdx = files.findIndex((f) => /^hero\./i.test(f));
+  const heroName = heroIdx >= 0 ? files[heroIdx] : files[0];
+  const collage = files.filter((f) => f !== heroName);
+  const toSrc = (name: string) => `/mothers-day/${encodeURIComponent(name)}`;
+  return { hero: toSrc(heroName), collage: collage.map(toSrc) };
 }
 
-// Photos live in /public/mothers-day/ — drop the JPGs there with these
-// filenames and they appear in the layout below. Photo 01 is the hero.
-const HERO: PhotoSpec = {
-  src: "/mothers-day/01.jpg",
-  alt: "Anna with baby — a moment of love",
-};
-
-const COLLAGE: PhotoSpec[] = [
-  { src: "/mothers-day/02.jpg", alt: "In the kitchen with the little ones", span: { col: 3, row: 2 } },
-  { src: "/mothers-day/03.jpg", alt: "Quiet moment with baby in the camp chair", span: { col: 3 } },
-  { src: "/mothers-day/04.jpg", alt: "A tender embrace", span: { col: 3 } },
-  { src: "/mothers-day/05.jpg", alt: "Discovering the world together", span: { col: 4, row: 2 } },
-  { src: "/mothers-day/06.jpg", alt: "Helping at the water's edge", span: { col: 2 } },
-  { src: "/mothers-day/07.jpg", alt: "All the kids in tow", span: { col: 6 } },
-  { src: "/mothers-day/08.jpg", alt: "Decorating cookies", span: { col: 3 } },
-  { src: "/mothers-day/09.jpg", alt: "A sleeping baby's mother", span: { col: 3 } },
-  { src: "/mothers-day/10.jpg", alt: "At the beach", span: { col: 2 } },
-  { src: "/mothers-day/11.jpg", alt: "Comfort under the headphones", span: { col: 2 } },
-  { src: "/mothers-day/12.jpg", alt: "By the lake in autumn", span: { col: 2 } },
-  { src: "/mothers-day/13.jpg", alt: "Laughter and a flower bonnet", span: { col: 3 } },
-  { src: "/mothers-day/14.jpg", alt: "Side by side in the grass", span: { col: 3 } },
-];
-
 export function MothersDaySplash() {
+  const { hero, collage } = loadPhotos();
   return (
     <div
       style={{
@@ -93,31 +89,33 @@ export function MothersDaySplash() {
       </div>
 
       {/* Hero photo */}
-      <div
-        style={{
-          maxWidth: 720,
-          margin: "0 auto 28px",
-          padding: 8,
-          background: "white",
-          border: "1px solid var(--gold)",
-          borderRadius: 4,
-          boxShadow: "0 8px 30px rgba(31, 44, 74, 0.12)",
-        }}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={HERO.src}
-          alt={HERO.alt}
+      {hero && (
+        <div
           style={{
-            display: "block",
-            width: "100%",
-            maxHeight: 520,
-            objectFit: "cover",
-            objectPosition: "center 30%",
-            borderRadius: 2,
+            maxWidth: 720,
+            margin: "0 auto 28px",
+            padding: 8,
+            background: "white",
+            border: "1px solid var(--gold)",
+            borderRadius: 4,
+            boxShadow: "0 8px 30px rgba(31, 44, 74, 0.12)",
           }}
-        />
-      </div>
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={hero}
+            alt="Anna — Mother's Day"
+            style={{
+              display: "block",
+              width: "100%",
+              maxHeight: 520,
+              objectFit: "cover",
+              objectPosition: "center 30%",
+              borderRadius: 2,
+            }}
+          />
+        </div>
+      )}
 
       {/* Tribute message */}
       <div
@@ -207,37 +205,45 @@ export function MothersDaySplash() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(6, 1fr)",
+            gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
             gap: 10,
+            gridAutoFlow: "dense",
           }}
         >
-          {COLLAGE.map((p, i) => (
-            <div
-              key={i}
-              style={{
-                gridColumn: `span ${p.span?.col ?? 2}`,
-                gridRow: `span ${p.span?.row ?? 1}`,
-                background: "white",
-                border: "1px solid var(--line)",
-                padding: 4,
-                boxShadow: "0 2px 8px rgba(31, 44, 74, 0.08)",
-                aspectRatio: p.span?.row === 2 ? "4 / 5" : "4 / 3",
-                overflow: "hidden",
-              }}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={p.src}
-                alt={p.alt}
+          {collage.map((src, i) => {
+            // Give a few photos visual emphasis: every 11th is featured (taller),
+            // every 7th is wider, others uniform. Creates rhythm without chaos.
+            const featured = i > 0 && i % 11 === 0;
+            const wide = !featured && i > 0 && i % 7 === 0;
+            return (
+              <div
+                key={i}
                 style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  display: "block",
+                  gridColumn: wide || featured ? "span 2" : undefined,
+                  gridRow: featured ? "span 2" : undefined,
+                  background: "white",
+                  border: "1px solid var(--line)",
+                  padding: 4,
+                  boxShadow: "0 2px 8px rgba(31, 44, 74, 0.08)",
+                  aspectRatio: featured ? "4 / 5" : "4 / 3",
+                  overflow: "hidden",
                 }}
-              />
-            </div>
-          ))}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={src}
+                  alt={`Anna with family ${i + 1}`}
+                  loading="lazy"
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    display: "block",
+                  }}
+                />
+              </div>
+            );
+          })}
         </div>
       </div>
 
