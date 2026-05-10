@@ -258,13 +258,21 @@ CREATE INDEX IF NOT EXISTS idx_event_tasks_event ON public.event_tasks(event_id)
 -- 8. CALENDAR ITEMS  (one-off entries that aren't full events)
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS public.calendar_items (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name        text NOT NULL,
-  date        date NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  deleted_at  timestamptz
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name               text NOT NULL,
+  date               date NOT NULL,
+  start_at           timestamptz,
+  end_at             timestamptz,
+  all_day            boolean NOT NULL DEFAULT true,
+  location           text,
+  description        text,
+  icloud_calendar_id uuid REFERENCES public.icloud_calendars(id) ON DELETE SET NULL,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  deleted_at         timestamptz
 );
 CREATE INDEX IF NOT EXISTS idx_calendar_items_date ON public.calendar_items(date);
+CREATE INDEX IF NOT EXISTS idx_calendar_items_start_at ON public.calendar_items(start_at);
+CREATE INDEX IF NOT EXISTS idx_calendar_items_icloud_calendar ON public.calendar_items(icloud_calendar_id);
 
 -- =====================================================================
 -- 9. SCRIPTURE STUDY

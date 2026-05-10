@@ -73,17 +73,25 @@ export function CalendarClient({
         sourceId: e.id,
       });
     });
-    // Calendar items (date-only)
+    // Calendar items — use start_at/end_at when present, fall back to legacy date
     calendarItems.forEach((it) => {
-      const start = new Date(it.date + "T00:00:00").getTime();
+      const startMs = it.start_at
+        ? new Date(it.start_at).getTime()
+        : new Date(it.date + "T00:00:00").getTime();
+      const endMs = it.end_at ? new Date(it.end_at).getTime() : null;
+      const itemColor =
+        (it.icloud_calendar_id && calColor[it.icloud_calendar_id]) || KIND_COLORS.item;
       out.push({
         id: `item-${it.id}`,
         label: it.name,
         kind: "item",
-        color: KIND_COLORS.item,
-        startMs: start,
-        endMs: null,
-        allDay: true,
+        color: itemColor,
+        startMs,
+        endMs,
+        allDay: it.all_day,
+        location: it.location,
+        description: it.description,
+        calendarId: it.icloud_calendar_id,
         source: "calendar_item",
         sourceId: it.id,
       });
@@ -150,10 +158,16 @@ export function CalendarClient({
       {view === "week" && <WeekView anchor={anchor} entries={allEntries} onPick={setSelected} />}
       {view === "day" && <DayView anchor={anchor} entries={allEntries} onPick={setSelected} />}
 
-      <AddCalendarItem />
+      <AddCalendarItem icloudCalendars={icloudCalendars} />
       {calendarItems.length > 0 && <ItemsList items={calendarItems} />}
 
-      {selected && <EventDetailModal entry={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <EventDetailModal
+          entry={selected}
+          onClose={() => setSelected(null)}
+          icloudCalendars={icloudCalendars}
+        />
+      )}
     </>
   );
 }
@@ -609,7 +623,15 @@ function entryChipStyle(color: string, isLight: boolean): React.CSSProperties {
 }
 
 // ----- EVENT DETAIL MODAL -----
-function EventDetailModal({ entry, onClose }: { entry: Entry; onClose: () => void }) {
+function EventDetailModal({
+  entry,
+  onClose,
+  icloudCalendars,
+}: {
+  entry: Entry;
+  onClose: () => void;
+  icloudCalendars: ICloudCalendarRow[];
+}) {
   const [editing, setEditing] = useState(false);
 
   return (
@@ -642,7 +664,12 @@ function EventDetailModal({ entry, onClose }: { entry: Entry; onClose: () => voi
         }}
       >
         {editing ? (
-          <EditForm entry={entry} onClose={onClose} onCancel={() => setEditing(false)} />
+          <EditForm
+            entry={entry}
+            onClose={onClose}
+            onCancel={() => setEditing(false)}
+            icloudCalendars={icloudCalendars}
+          />
         ) : (
           <ViewDetail entry={entry} onClose={onClose} onEdit={() => setEditing(true)} />
         )}
@@ -757,10 +784,12 @@ function EditForm({
   entry,
   onClose,
   onCancel,
+  icloudCalendars,
 }: {
   entry: Entry;
   onClose: () => void;
   onCancel: () => void;
+  icloudCalendars: ICloudCalendarRow[];
 }) {
   const start = new Date(entry.startMs);
   const end = entry.endMs ? new Date(entry.endMs) : null;
@@ -768,10 +797,14 @@ function EditForm({
   const [location, setLocation] = useState(entry.location || "");
   const [description, setDescription] = useState(entry.description || "");
   const [allDay, setAllDay] = useState(entry.allDay);
-  const [date, setDate] = useState(start.toISOString().slice(0, 10));
-  const [startTime, setStartTime] = useState(start.toTimeString().slice(0, 5));
-  const [endTime, setEndTime] = useState(end ? end.toTimeString().slice(0, 5) : "");
+  const [date, setDate] = useState(localDateStr(start));
+  const [startTime, setStartTime] = useState(localTimeStr(start));
+  const [endTime, setEndTime] = useState(end ? localTimeStr(end) : "");
+  const [calendarId, setCalendarId] = useState<string>(entry.calendarId || "");
   const [busy, setBusy] = useState(false);
+
+  const enabledCals = icloudCalendars.filter((c) => c.enabled);
+  const showCalendarPicker = entry.source === "calendar_item" && enabledCals.length > 0;
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -801,8 +834,16 @@ function EditForm({
       }
       onClose();
     } else if (entry.source === "calendar_item" && entry.sourceId) {
-      // Calendar items only have name + date in our schema — ignore time fields.
-      const res = await updateCalendarItem(entry.sourceId, summary.trim(), date);
+      const res = await updateCalendarItem(entry.sourceId, {
+        name: summary.trim(),
+        allDay,
+        date,
+        startTime: allDay ? undefined : startTime,
+        endTime: allDay ? undefined : endTime || undefined,
+        location: location || undefined,
+        description: description || undefined,
+        icloudCalendarId: calendarId || null,
+      });
       setBusy(false);
       if (!res.ok) {
         alert(res.error || "Update failed");
@@ -867,6 +908,20 @@ function EditForm({
         <span>Notes</span>
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
       </label>
+      {showCalendarPicker && (
+        <label className="field">
+          <span>Calendar</span>
+          <select value={calendarId} onChange={(e) => setCalendarId(e.target.value)}>
+            <option value="">— Default (★) —</option>
+            {enabledCals.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.display_name}
+                {c.is_default_for_writes ? " ★" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div style={{ display: "flex", gap: 6 }}>
         <button className="btn" type="submit" disabled={busy}>
           {busy ? "Saving…" : "Save"}
@@ -879,17 +934,59 @@ function EditForm({
   );
 }
 
+// helpers — produce local-time strings without UTC drift
+function localDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function localTimeStr(d: Date): string {
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(d.getMinutes()).padStart(2, "0");
+  return `${h}:${m}`;
+}
+
 // ----- ADD CALENDAR ITEM -----
-function AddCalendarItem() {
+function AddCalendarItem({ icloudCalendars }: { icloudCalendars: ICloudCalendarRow[] }) {
+  const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState("");
   const [date, setDate] = useState(todayStr());
+  const [allDay, setAllDay] = useState(true);
+  const [startTime, setStartTime] = useState("09:00");
+  const [endTime, setEndTime] = useState("10:00");
+  const [location, setLocation] = useState("");
+  const [description, setDescription] = useState("");
+  const enabledCals = icloudCalendars.filter((c) => c.enabled);
+  const defaultCal = enabledCals.find((c) => c.is_default_for_writes);
+  const [calendarId, setCalendarId] = useState<string>(defaultCal?.id || "");
   const [busy, setBusy] = useState(false);
+
+  const reset = () => {
+    setName("");
+    setDate(todayStr());
+    setAllDay(true);
+    setStartTime("09:00");
+    setEndTime("10:00");
+    setLocation("");
+    setDescription("");
+    setCalendarId(defaultCal?.id || "");
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !date) return;
     setBusy(true);
-    const res = await createCalendarItem(name.trim(), date);
+    const res = await createCalendarItem({
+      name: name.trim(),
+      allDay,
+      date,
+      startTime: allDay ? undefined : startTime,
+      endTime: allDay ? undefined : endTime || undefined,
+      location: location || undefined,
+      description: description || undefined,
+      icloudCalendarId: calendarId || null,
+    });
     setBusy(false);
     if (!res.ok) {
       alert(res.error || "Couldn't add the item");
@@ -901,34 +998,124 @@ function AddCalendarItem() {
           (res.sync.error || res.sync.reason || "unknown reason"),
       );
     }
-    setName("");
-    setDate(todayStr());
+    reset();
+    setExpanded(false);
   };
 
   return (
     <div className="card">
-      <h3 style={{ margin: "0 0 6px", color: "var(--navy)", fontFamily: "'Garamond', serif", fontWeight: "normal" }}>
-        Add a calendar item
-      </h3>
-      <p style={{ color: "var(--muted)", fontSize: "0.9rem", marginTop: 0, marginBottom: 12 }}>
-        For one-off items like appointments, anniversaries, or reminders. Pushed to your iCloud default calendar if connected.
-      </p>
-      <form
-        onSubmit={submit}
-        style={{ display: "grid", gridTemplateColumns: "2fr 1fr auto", gap: 10, alignItems: "end" }}
-      >
-        <label className="field" style={{ marginBottom: 0 }}>
-          <span>Description</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Dentist appointment" />
-        </label>
-        <label className="field" style={{ marginBottom: 0 }}>
-          <span>Date</span>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        </label>
-        <button className="btn" type="submit" disabled={busy || !name.trim() || !date}>
-          {busy ? "Adding..." : "+ Add"}
-        </button>
-      </form>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: expanded ? 12 : 0 }}>
+        <div>
+          <h3 style={{ margin: "0 0 4px", color: "var(--navy)", fontFamily: "'Garamond', serif", fontWeight: "normal" }}>
+            Add a calendar item
+          </h3>
+          {!expanded && (
+            <p style={{ color: "var(--muted)", fontSize: "0.88rem", margin: 0 }}>
+              Appointments, anniversaries, reminders — pushed to your chosen iCloud calendar.
+            </p>
+          )}
+        </div>
+        {!expanded && (
+          <button className="btn" type="button" onClick={() => setExpanded(true)}>
+            + New item
+          </button>
+        )}
+      </div>
+
+      {expanded && (
+        <form onSubmit={submit}>
+          <label className="field">
+            <span>Title</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g., Dentist appointment"
+              required
+              autoFocus
+            />
+          </label>
+
+          <label className="field">
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={allDay}
+                onChange={(e) => setAllDay(e.target.checked)}
+                style={{ width: 16, height: 16, accentColor: "var(--navy)" }}
+              />
+              All-day event
+            </span>
+          </label>
+
+          <div style={{ display: "grid", gridTemplateColumns: allDay ? "1fr" : "1fr 1fr 1fr", gap: 10 }}>
+            <label className="field">
+              <span>Date</span>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+            </label>
+            {!allDay && (
+              <>
+                <label className="field">
+                  <span>Start time</span>
+                  <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} required />
+                </label>
+                <label className="field">
+                  <span>End time</span>
+                  <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+                </label>
+              </>
+            )}
+          </div>
+
+          <label className="field">
+            <span>Location</span>
+            <input
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="(optional)"
+            />
+          </label>
+
+          <label className="field">
+            <span>Notes</span>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="(optional)"
+            />
+          </label>
+
+          {enabledCals.length > 0 && (
+            <label className="field">
+              <span>Calendar</span>
+              <select value={calendarId} onChange={(e) => setCalendarId(e.target.value)}>
+                <option value="">— Default (★) —</option>
+                {enabledCals.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.display_name}
+                    {c.is_default_for_writes ? " ★" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="btn" type="submit" disabled={busy || !name.trim() || !date}>
+              {busy ? "Adding…" : "+ Add"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                reset();
+                setExpanded(false);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

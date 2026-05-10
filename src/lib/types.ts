@@ -117,6 +117,12 @@ export interface CalendarItem {
   id: string;
   name: string;
   date: string;
+  start_at: string | null;
+  end_at: string | null;
+  all_day: boolean;
+  location: string | null;
+  description: string | null;
+  icloud_calendar_id: string | null;
 }
 
 export interface ScripturePlanEntry {

@@ -35,7 +35,10 @@ export default async function CalendarPage() {
   const [eventsRes, familyRes, itemsRes, connRes, calsRes, subRes] = await Promise.all([
     supabase.from("events").select("*").is("deleted_at", null),
     supabase.from("family_members").select("*").is("deleted_at", null),
-    supabase.from("calendar_items").select("*").is("deleted_at", null),
+    supabase
+      .from("calendar_items")
+      .select("id, name, date, start_at, end_at, all_day, location, description, icloud_calendar_id")
+      .is("deleted_at", null),
     user
       ? supabase
           .from("icloud_connections")

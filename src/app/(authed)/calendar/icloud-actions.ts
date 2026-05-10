@@ -338,7 +338,8 @@ export async function refreshICloudEvents() {
   return { ok: true as const, count: total };
 }
 
-// Push a hub-side event to iCloud (uses the default-for-writes calendar).
+// Push a hub-side event to iCloud. If `targetCalendarId` is provided, that
+// calendar is used; otherwise we fall back to the default-for-writes calendar.
 export async function pushEventToICloud(input: {
   source: "calendar_item" | "event";
   source_id: string;
@@ -349,6 +350,7 @@ export async function pushEventToICloud(input: {
   startIso: string;
   endIso?: string | null;
   allDay?: boolean;
+  targetCalendarId?: string | null;
 }): Promise<{ ok: boolean; reason?: string; error?: string }> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -361,12 +363,26 @@ export async function pushEventToICloud(input: {
     .maybeSingle();
   if (!conn) return { ok: false, reason: "no_connection" };
 
-  const { data: writeCal } = await supabase
-    .from("icloud_calendars")
-    .select("*")
-    .eq("connection_id", conn.id)
-    .eq("is_default_for_writes", true)
-    .maybeSingle();
+  // Pick target calendar: explicit override first, then default-for-writes.
+  let writeCal: { id: string; caldav_url: string; display_name: string } | null = null;
+  if (input.targetCalendarId) {
+    const { data } = await supabase
+      .from("icloud_calendars")
+      .select("id, caldav_url, display_name")
+      .eq("connection_id", conn.id)
+      .eq("id", input.targetCalendarId)
+      .maybeSingle();
+    writeCal = data ?? null;
+  }
+  if (!writeCal) {
+    const { data } = await supabase
+      .from("icloud_calendars")
+      .select("id, caldav_url, display_name")
+      .eq("connection_id", conn.id)
+      .eq("is_default_for_writes", true)
+      .maybeSingle();
+    writeCal = data ?? null;
+  }
   if (!writeCal) {
     await supabase
       .from("icloud_connections")
