@@ -15,8 +15,30 @@ import {
   isJobScheduledOnDate,
   todayStr,
 } from "@/lib/helpers";
+import { MothersDaySplash } from "./MothersDaySplash";
 
-export default async function HomePage() {
+// True on the 2nd Sunday of May (US Mother's Day) — auto-reverts the day after.
+function isUsMothersDay(d: Date): boolean {
+  if (d.getMonth() !== 4) return false; // May
+  if (d.getDay() !== 0) return false;   // Sunday
+  const dom = d.getDate();
+  return dom >= 8 && dom <= 14;         // 2nd Sunday window
+}
+
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams?: { dashboard?: string };
+}) {
+  // Show the splash on Mother's Day, unless the user has clicked
+  // "Continue to the Hub" (which sets ?dashboard=1).
+  if (isUsMothersDay(new Date()) && searchParams?.dashboard !== "1") {
+    return <MothersDaySplash />;
+  }
+  return <Dashboard />;
+}
+
+async function Dashboard() {
   const supabase = createClient();
   const [familyRes, jobsRes, complRes, eventsRes, planRes, resRes, reqRes] = await Promise.all([
     supabase.from("family_members").select("*").is("deleted_at", null).order("position", { ascending: true }),
