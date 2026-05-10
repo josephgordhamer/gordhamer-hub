@@ -1,31 +1,13 @@
 import Link from "next/link";
-import fs from "node:fs";
-import path from "node:path";
+import { HERO_PHOTO, COLLAGE_PHOTOS } from "./photos.generated";
 
-// Read /public/mothers-day at build/render time and use whatever's there.
-// If a file is named "hero.jpg" / "hero.jpeg" / "hero.png", it becomes the
-// hero photo; otherwise the first file alphabetically does.
-function loadPhotos(): { hero: string; collage: string[] } {
-  const dir = path.join(process.cwd(), "public", "mothers-day");
-  let files: string[] = [];
-  try {
-    files = fs
-      .readdirSync(dir)
-      .filter((f) => /\.(jpg|jpeg|png|webp)$/i.test(f))
-      .sort();
-  } catch {
-    files = [];
-  }
-  if (files.length === 0) return { hero: "", collage: [] };
-  const heroIdx = files.findIndex((f) => /^hero\./i.test(f));
-  const heroName = heroIdx >= 0 ? files[heroIdx] : files[0];
-  const collage = files.filter((f) => f !== heroName);
-  const toSrc = (name: string) => `/mothers-day/${encodeURIComponent(name)}`;
-  return { hero: toSrc(heroName), collage: collage.map(toSrc) };
-}
-
+// Photo list is generated at build time by scripts/list-mothers-day-photos.mjs
+// (wired into `prebuild` in package.json). Drop files into /public/mothers-day/
+// and they'll appear after the next deploy. Name a file `hero.jpg` to make it
+// the hero; otherwise the first file alphabetically is used.
 export function MothersDaySplash() {
-  const { hero, collage } = loadPhotos();
+  const hero = HERO_PHOTO;
+  const collage = COLLAGE_PHOTOS;
   return (
     <div
       style={{

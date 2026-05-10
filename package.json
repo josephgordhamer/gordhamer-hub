@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/list-mothers-day-photos.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
