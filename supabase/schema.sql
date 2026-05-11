@@ -432,7 +432,7 @@ BEGIN
       'jobs', 'job_completions', 'job_overrides',
       'events', 'event_tasks', 'calendar_items',
       'scripture_plan', 'discussions', 'resources',
-      'photo_albums'
+      'photo_albums', 'quotes'
     ])
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS "%1$I_select" ON public.%1$I;', t);

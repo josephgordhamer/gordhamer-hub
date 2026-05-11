@@ -200,6 +200,12 @@ async function Dashboard() {
           </p>
         </Card>
 
+        <Card href="/quotes" title="Greatest Quotes">
+          <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--muted)" }}>
+            Funny and meaningful things our family has said. 👍 the ones you love.
+          </p>
+        </Card>
+
         <Card href="/celebrations" title="Family Keepsakes">
           <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--muted)" }}>
             Pages we built to remember the moments that mattered.

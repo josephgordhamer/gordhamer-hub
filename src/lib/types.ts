@@ -125,6 +125,32 @@ export interface CalendarItem {
   icloud_calendar_id: string | null;
 }
 
+export interface Quote {
+  id: string;
+  family_member_id: string;
+  text: string;
+  said_on: string | null;
+  context: string | null;
+  added_by: string | null;
+  position: number;
+  created_at: string;
+}
+
+export interface QuoteReaction {
+  id: string;
+  quote_id: string;
+  profile_id: string;
+  created_at: string;
+}
+
+export interface QuoteComment {
+  id: string;
+  quote_id: string;
+  profile_id: string | null;
+  text: string;
+  created_at: string;
+}
+
 export interface ScripturePlanEntry {
   id: string;
   day: string;
