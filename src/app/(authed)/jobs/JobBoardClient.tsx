@@ -81,6 +81,7 @@ export function JobBoardClient({ family, jobs, completions, overrides }: Props) 
   const [filter, setFilter] = useState<string>("__all__");
   const [editingInstance, setEditingInstance] = useState<string | null>(null);
   const [quickAddDate, setQuickAddDate] = useState<string | null>(null);
+  const [showOverdue, setShowOverdue] = useState(false);
 
   const matchesFilter = (job: Job, date: Date) => {
     if (filter === "__all__") return true;
@@ -146,7 +147,12 @@ export function JobBoardClient({ family, jobs, completions, overrides }: Props) 
           padding: "14px 18px",
         }}
       >
-        <Stat num={stats.overdue} label="Overdue" color="var(--burgundy)" />
+        <Stat
+          num={stats.overdue}
+          label="Overdue"
+          color="var(--burgundy)"
+          onClick={stats.overdue > 0 ? () => setShowOverdue(true) : undefined}
+        />
         <Stat num={stats.dueToday} label="Due Today" color="var(--gold)" />
         <Stat num={stats.doneToday} label="Done Today" color="#5d6d4a" />
         <Stat num={stats.total} label="Total Jobs" color="var(--navy)" />
@@ -208,6 +214,17 @@ export function JobBoardClient({ family, jobs, completions, overrides }: Props) 
           onClose={() => setQuickAddDate(null)}
         />
       )}
+
+      {showOverdue && (
+        <OverdueModal
+          jobs={jobs}
+          family={family}
+          completions={completions}
+          overrides={overrides}
+          onToggleDone={onToggleDone}
+          onClose={() => setShowOverdue(false)}
+        />
+      )}
     </>
   );
 }
@@ -239,9 +256,44 @@ function computeStats(jobs: Job[], completions: JobCompletion[], overrides: JobO
   return { overdue, dueToday, doneToday, total: jobs.length };
 }
 
-function Stat({ num, label, color }: { num: number; label: string; color: string }) {
+function Stat({
+  num,
+  label,
+  color,
+  onClick,
+}: {
+  num: number;
+  label: string;
+  color: string;
+  onClick?: () => void;
+}) {
+  const clickable = !!onClick;
   return (
-    <div style={{ textAlign: "center", padding: "6px 12px" }}>
+    <div
+      onClick={onClick}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick?.();
+              }
+            }
+          : undefined
+      }
+      title={clickable ? `View ${label.toLowerCase()} jobs` : undefined}
+      style={{
+        textAlign: "center",
+        padding: "6px 12px",
+        borderRadius: 6,
+        cursor: clickable ? "pointer" : "default",
+        border: `1px solid ${clickable ? color : "transparent"}`,
+        background: clickable ? "white" : "transparent",
+        boxShadow: clickable ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
+      }}
+    >
       <span
         style={{
           fontFamily: "'Garamond', serif",
@@ -264,9 +316,41 @@ function Stat({ num, label, color }: { num: number; label: string; color: string
         }}
       >
         {label}
+        {clickable ? " ▾" : ""}
       </span>
     </div>
   );
+}
+
+interface OverdueInstance {
+  job: Job;
+  date: Date;
+  ds: string;
+  daysOverdue: number;
+}
+
+function computeOverdueList(
+  jobs: Job[],
+  completions: JobCompletion[],
+): OverdueInstance[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const list: OverdueInstance[] = [];
+  jobs.forEach((j) => {
+    for (let i = 1; i <= 30; i++) {
+      const past = addDays(today, -i);
+      const ds = dateStr(past);
+      if (
+        isJobScheduledOnDate(j, past) &&
+        !completions.some((c) => c.job_id === j.id && c.date === ds)
+      ) {
+        list.push({ job: j, date: past, ds, daysOverdue: i });
+      }
+    }
+  });
+  // Most overdue first
+  list.sort((a, b) => b.daysOverdue - a.daysOverdue);
+  return list;
 }
 
 function TabBtn({
@@ -1117,6 +1201,189 @@ function QuickAddModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function OverdueModal({
+  jobs,
+  family,
+  completions,
+  overrides,
+  onToggleDone,
+  onClose,
+}: {
+  jobs: Job[];
+  family: FamilyMember[];
+  completions: JobCompletion[];
+  overrides: JobOverride[];
+  onToggleDone: (j: Job, d: Date) => Promise<void> | void;
+  onClose: () => void;
+}) {
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const list = computeOverdueList(jobs, completions);
+
+  const handleCheck = async (inst: OverdueInstance) => {
+    setBusyKey(inst.job.id + inst.ds);
+    await onToggleDone(inst.job, inst.date);
+    setBusyKey(null);
+  };
+
+  return (
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(31, 44, 74, 0.55)",
+        zIndex: 1000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+      }}
+    >
+      <div
+        style={{
+          background: "var(--cream)",
+          border: "2px solid var(--burgundy)",
+          borderRadius: 8,
+          padding: "22px 24px",
+          maxWidth: 560,
+          width: "100%",
+          maxHeight: "85vh",
+          display: "flex",
+          flexDirection: "column",
+          boxShadow: "0 10px 40px rgba(0,0,0,0.35)",
+        }}
+      >
+        <h3
+          style={{
+            margin: "0 0 4px",
+            fontFamily: "'Garamond', serif",
+            color: "var(--burgundy)",
+            fontWeight: "normal",
+            fontSize: "1.35rem",
+          }}
+        >
+          Overdue Jobs
+        </h3>
+        <div
+          style={{
+            color: "var(--muted)",
+            fontStyle: "italic",
+            fontSize: "0.85rem",
+            borderBottom: "1px solid var(--line)",
+            paddingBottom: 10,
+            marginBottom: 14,
+          }}
+        >
+          {list.length === 0
+            ? "Nothing overdue right now."
+            : `${list.length} job${list.length === 1 ? "" : "s"} past due. Check off any that were actually done.`}
+        </div>
+
+        <div style={{ overflowY: "auto", flex: 1, margin: "0 -4px", padding: "0 4px" }}>
+          {list.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "30px 12px", color: "#5d6d4a" }}>
+              <div style={{ fontSize: "2.2rem", lineHeight: 1 }}>✓</div>
+              <div
+                style={{
+                  fontFamily: "'Garamond', serif",
+                  fontSize: "1.2rem",
+                  marginTop: 8,
+                }}
+              >
+                All caught up — nothing overdue!
+              </div>
+            </div>
+          ) : (
+            list.map((inst) => {
+              const key = inst.job.id + inst.ds;
+              const name = getNameForDate(inst.job, inst.date, overrides);
+              const assignee = getAssigneeForDate(inst.job, inst.date, overrides);
+              const busy = busyKey === key;
+              return (
+                <div
+                  key={key}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 11,
+                    padding: "10px 12px",
+                    marginBottom: 6,
+                    borderRadius: 5,
+                    background: "#fbf0f0",
+                    border: "1px solid var(--line)",
+                    borderLeft: "5px solid var(--burgundy)",
+                    opacity: busy ? 0.5 : 1,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={false}
+                    disabled={busy}
+                    onChange={() => handleCheck(inst)}
+                    title="Mark this job as done"
+                    style={{
+                      width: 20,
+                      height: 20,
+                      flexShrink: 0,
+                      cursor: busy ? "default" : "pointer",
+                      accentColor: "#5d6d4a",
+                    }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: "bold", color: "var(--navy)" }}>
+                      {name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "0.82rem",
+                        color: "var(--muted)",
+                        marginTop: 2,
+                      }}
+                    >
+                      Assigned to {getDisplayName(assignee, family)} · was due{" "}
+                      {formatDate(inst.ds)}
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      flexShrink: 0,
+                      background: "var(--burgundy)",
+                      color: "var(--cream)",
+                      padding: "3px 9px",
+                      borderRadius: 10,
+                      fontSize: "0.72rem",
+                      fontWeight: "bold",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {inst.daysOverdue} day{inst.daysOverdue === 1 ? "" : "s"} overdue
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            marginTop: 14,
+            paddingTop: 12,
+            borderTop: "1px solid var(--line)",
+          }}
+        >
+          <button className="btn btn-secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );
