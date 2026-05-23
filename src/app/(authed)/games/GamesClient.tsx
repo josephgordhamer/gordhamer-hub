@@ -34,7 +34,7 @@ const MEMORY_PROMPTS = [
   "Share a meal you'll always remember and who you ate it with.",
 ];
 
-type Game = "trivia" | "wouldyou" | "memory" | "dice";
+type Game = "trivia" | "wouldyou" | "memory" | "dice" | "vacuum";
 
 export function GamesClient({ family }: { family: FamilyMember[] }) {
   const [game, setGame] = useState<Game | null>(null);
@@ -56,6 +56,23 @@ export function GamesClient({ family }: { family: FamilyMember[] }) {
       setContent(WOULD_YOU_RATHER[Math.floor(Math.random() * WOULD_YOU_RATHER.length)]);
     } else if (g === "memory") {
       setContent(MEMORY_PROMPTS[Math.floor(Math.random() * MEMORY_PROMPTS.length)]);
+    } else if (g === "vacuum") {
+      setContent(
+        <iframe
+          src="/vacuum-game.html"
+          title="Vacuum Quest"
+          style={{
+            width: "100%",
+            maxWidth: 520,
+            height: 660,
+            display: "block",
+            margin: "0 auto",
+            border: "2px solid var(--gold)",
+            borderRadius: 10,
+            background: "#a6dbe6",
+          }}
+        />,
+      );
     } else {
       const roll = Math.ceil(Math.random() * Math.max(family.length, 1));
       const person = family[roll - 1];
@@ -78,6 +95,7 @@ export function GamesClient({ family }: { family: FamilyMember[] }) {
     wouldyou: "Would You Rather",
     memory: "Memory Lane",
     dice: "Roll the Dice",
+    vacuum: "Vacuum Quest",
   };
 
   const tiles: { g: Game; title: string; desc: string }[] = [
@@ -85,6 +103,7 @@ export function GamesClient({ family }: { family: FamilyMember[] }) {
     { g: "wouldyou", title: "Would You Rather", desc: "Conversation starters." },
     { g: "memory", title: "Memory Lane", desc: "Prompts to share family memories." },
     { g: "dice", title: "Roll the Dice", desc: "Random number for picking who's next." },
+    { g: "vacuum", title: "Vacuum Quest", desc: "Tidy the family room in Greta's arcade game." },
   ];
 
   return (
@@ -135,13 +154,15 @@ export function GamesClient({ family }: { family: FamilyMember[] }) {
             {titles[game]}
           </h3>
           <div style={{ fontSize: "1.1rem", fontStyle: "italic", marginBottom: 12 }}>{content}</div>
-          <button
-            className="btn btn-gold"
-            onClick={() => showContent(game)}
-            style={{ marginRight: 6 }}
-          >
-            Another One
-          </button>
+          {game !== "vacuum" && (
+            <button
+              className="btn btn-gold"
+              onClick={() => showContent(game)}
+              style={{ marginRight: 6 }}
+            >
+              Another One
+            </button>
+          )}
           <button className="btn btn-secondary" onClick={() => setGame(null)}>
             Close
           </button>
